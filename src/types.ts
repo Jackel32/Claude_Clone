@@ -5,7 +5,7 @@
 
 // FIX: Point the import to `config/schema.ts` where Profile is exported.
 import { Profile } from './config/schema.js';
-import { AIClient } from './ai/client.js';
+import { AIProvider  } from './ai/providers/interface.js';
 import { Logger } from 'pino';
 
 /**
@@ -16,9 +16,9 @@ export interface AppContext {
   /** The fully resolved configuration profile. */
   profile: Profile;
   
-  /** An instance of the AI client. */
-  aiClient: AIClient;
-  
+  /** An instance of the AI provider. */
+  aiProvider: AIProvider;
+
   /** The application's logger instance. */
   logger: Logger;
   

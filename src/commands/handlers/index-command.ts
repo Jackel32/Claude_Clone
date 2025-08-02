@@ -16,7 +16,7 @@ import * as cliProgress from 'cli-progress';
  * @param {AppContext} context - The application context.
  */
 export async function handleIndexCommand(context: AppContext): Promise<void> {
-  const { logger, aiClient, args } = context;
+  const { logger, aiProvider, args } = context;
   const projectPath = path.resolve(args.path || '.');
   
   logger.info(`Scanning project at ${projectPath}...`);
@@ -50,7 +50,7 @@ export async function handleIndexCommand(context: AppContext): Promise<void> {
 
   for (const file of filesToIndex) {
     const content = await fs.readFile(file, 'utf-8');
-    await updateVectorIndex(file, content, aiClient);
+    await updateVectorIndex(file, content, aiProvider);
     await updateCache(file, { vectorizedAt: new Date().toISOString() });
     progressBar.increment();
   }

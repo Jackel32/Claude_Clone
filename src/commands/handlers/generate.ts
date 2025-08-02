@@ -3,6 +3,7 @@
  * @description Handler for the 'generate' command.
  */
 
+import { promises as fs } from 'fs';
 import { queryVectorIndex } from '../../codebase/index.js';
 import { constructGeneratePrompt } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
@@ -13,8 +14,8 @@ import { extractCode } from './utils.js';
  * @param {AppContext} context - The application context.
  */
 export async function handleGenerateCommand(context: AppContext): Promise<void> {
-  const { logger, aiClient, args, profile } = context;
-  const userPrompt = args.prompt;
+  const { logger, aiProvider, args, profile } = context;
+  const { prompt: userPrompt, output: outputPath } = args;
 
   if (!userPrompt) {
     throw new Error('The --prompt option is required for the generate command.');
@@ -22,12 +23,12 @@ export async function handleGenerateCommand(context: AppContext): Promise<void> 
 
   logger.info('Finding relevant code for context...');
   const topK = profile.rag?.topK || 3;
-  const codeContext = await queryVectorIndex(userPrompt, aiClient, topK);
+  const codeContext = await queryVectorIndex(userPrompt, aiProvider, topK);
 
   logger.info('Generating code snippet...');
   const prompt = constructGeneratePrompt(userPrompt, codeContext);
-  
-  const response = await aiClient.getCompletion(prompt, false);
+
+  const response = await aiProvider.invoke(prompt, false);
   const rawCode = response?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!rawCode) {
@@ -37,7 +38,12 @@ export async function handleGenerateCommand(context: AppContext): Promise<void> 
 
   const finalCode = extractCode(rawCode);
 
-  logger.info('\n--- Generated Code ---');
-  console.log(finalCode);
-  logger.info('--- End of Code ---\n');
+  if (outputPath) {
+    await fs.writeFile(outputPath, finalCode, 'utf-8');
+    logger.info(`Code successfully saved to ${outputPath}`);
+  } else {
+    logger.info('\n--- Generated Code ---');
+    console.log(finalCode);
+    logger.info('--- End of Code ---\n');
+  }
 }

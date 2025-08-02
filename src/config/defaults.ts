@@ -14,7 +14,8 @@ export const defaultConfig: Config = {
   defaultProfile: 'default',
   profiles: {
     default: {
-      apiKey: 'AIzaSyDACYbCDEAtTELSFcTahQsezKfh4ul5Bfw', // User should replace this
+      provider: 'gemini',
+      apiKey: 'AIzaSyDACYbCDEAtTELSFcTahQsezKfh4ul5Bfw',
       model: 'gemini-2.5-flash',
       temperature: 0.7,
       rag: {

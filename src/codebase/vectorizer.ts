@@ -6,7 +6,7 @@
 import * as path from 'path';
 import { LocalIndex, QueryResult } from 'vectra';
 import { CACHE_DIR } from '../config/index.js';
-import { AIClient } from '../ai/client.js';
+import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 
 // Initialize the vector index, storing it in the cache directory
@@ -34,16 +34,15 @@ function chunkText(content: string): string[] {
  * Creates and stores vector embeddings for a file.
  * @param {string} filePath - The path of the file being indexed.
  * @param {string} content - The content of the file.
- * @param {AIClient} client - The AI client to generate embeddings.
+ * @param {AIProvider} client - The AI client to generate embeddings.
  */
-export async function updateVectorIndex(filePath: string, content: string, client: AIClient): Promise<void> {
+export async function updateVectorIndex(filePath: string, content: string, client: AIProvider): Promise<void> {
   const chunks = chunkText(content);
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     if (!chunk.trim()) continue;
 
-    const vector = await client.getEmbedding(chunk);
-    // FIX: Use the `upsertItem` method to add or update an entry.
+    const vector = await client.embed(chunk);
     await vectorIndex.upsertItem({
       vector,
       metadata: { filePath, chunk: i + 1, content: chunk },
@@ -54,17 +53,16 @@ export async function updateVectorIndex(filePath: string, content: string, clien
 /**
  * Queries the vector index to find relevant context.
  * @param {string} query - The user's question.
- * @param {AIClient} client - The AI client.
+ * @param {AIProvider} client - The AI client.
  * @param {number} topK - The number of results to retrieve.
  * @returns {Promise<string>} The retrieved context string.
  */
-export async function queryVectorIndex(query: string, client: AIClient, topK: number): Promise<string> {
+export async function queryVectorIndex(query: string, client: AIProvider, topK: number): Promise<string> {
   if (!(await vectorIndex.isIndexCreated())) {
     throw new VectorIndexError('Vector index not found. Please run "claude-code index" first.');
   }
 
-  const queryVector = await client.getEmbedding(query);
-  // FIX: Use the topK parameter instead of the magic number 3.
+  const queryVector = await client.embed(query);
   const results = await vectorIndex.queryItems(queryVector, query, topK);
 
   if (results.length === 0) {

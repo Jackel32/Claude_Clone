@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { logger } from './logger/index.js';
-import { startMainMenu } from './app.js'; // Import our new main loop
+import { startMainMenu } from './app.js';
 
 /**
  * The main entry point for the application.

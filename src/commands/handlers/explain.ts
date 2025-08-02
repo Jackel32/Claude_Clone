@@ -12,7 +12,7 @@ import { AppContext } from '../../types.js';
  */
 export async function handleExplainCommand(context: AppContext): Promise<void> {
   // Destructure dependencies from the context object
-  const { aiClient, logger, args } = context;
+  const { aiProvider, logger, args } = context;
   const { files } = args;
 
   if (!files || files.length === 0) {
@@ -31,7 +31,7 @@ export async function handleExplainCommand(context: AppContext): Promise<void> {
   const prompt = constructPrompt(userQuery, fileContext);
   
   try {
-    const stream = await aiClient.getCompletion(prompt, true);
+    const stream = await aiProvider.invoke(prompt, true);
     await processStream(stream);
   } catch (error) {
     logger.error(error, 'AI API Error during explain command');

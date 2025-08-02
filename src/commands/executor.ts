@@ -5,10 +5,10 @@
 
 import { handleExplainCommand, handleIndexCommand, handleReportCommand,
         handleDiffCommand, handleChatCommand, handleGenerateCommand,
-        handleRefactorCommand, handleAddDocsCommand } from './handlers/index.js';
+        handleRefactorCommand, handleAddDocsCommand, handleTestCommand  } from './handlers/index.js';
 import { getProfile } from '../config/index.js';
 import { getApiKey } from '../auth/index.js';
-import { AIClient } from '../ai/index.js';
+import { createAIProvider } from '../ai/provider-factory.js';
 import { logger } from '../logger/index.js';
 import { AppContext } from '../types.js';
 
@@ -20,13 +20,12 @@ export async function executeCommand(args: any): Promise<void> {
   // --- Create the shared AppContext here ---
   const profile = await getProfile(args.profile);
   const apiKey = await getApiKey(args.profile);
-  if (!profile.model) throw new Error('Model not configured.');
 
-  const aiClient = new AIClient(apiKey, profile.model, profile.temperature);
+  const aiProvider = createAIProvider(profile, apiKey);
 
   const context: AppContext = {
     profile,
-    aiClient,
+    aiProvider,
     logger,
     args,
   };
@@ -58,6 +57,9 @@ export async function executeCommand(args: any): Promise<void> {
       break;
     case 'add-docs':
       await handleAddDocsCommand(context);
+      break;
+    case 'test':
+      await handleTestCommand(context);
       break;
     default:
       logger.error(`Unknown command: ${command}`);

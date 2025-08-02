@@ -33,7 +33,7 @@ export async function processStream(stream: ReadableStream<Uint8Array>): Promise
       }
     }
   } catch (error) {
-    console.error('\n\n❌ Failed to parse the complete AI response stream.');
+    console.error('\n\nFailed to parse the complete AI response stream.');
     console.error('Raw Response:', fullResponse);
     throw error;
   }

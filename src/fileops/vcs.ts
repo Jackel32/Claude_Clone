@@ -1,10 +1,45 @@
+/**
+ * @file src/fileops/vcs.ts
+ * @description Utilities for interacting with the version control system (Git).
+ */
+
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { spawn } from 'child_process'; // Only spawn is needed now
+import { logger } from '../logger/index.js';
 
-// Promisify exec for async/await syntax
-const execAsync = promisify(exec);
+/**
+ * A robust helper for running any git command using spawn.
+ * @param args An array of string arguments for the git command.
+ * @returns {Promise<string>} The stdout from the command.
+ */
+function runGitCommand(args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const git = spawn('git', args);
+        let stdout = '';
+        let stderr = '';
+
+        git.stdout.on('data', (data) => {
+            stdout += data.toString();
+        });
+
+        git.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        git.on('close', (code) => {
+            if (code === 0) {
+                resolve(stdout.trim());
+            } else {
+                reject(new Error(`Git command failed with code ${code}: ${stderr.trim()}`));
+            }
+        });
+
+        git.on('error', (err) => {
+            reject(err);
+        });
+    });
+}
 
 /**
  * Checks if a directory is a Git repository by looking for a .git directory.
@@ -39,16 +74,34 @@ export async function findGitRoot(startPath: string = '.'): Promise<string | nul
 }
 
 /**
- * Executes `git diff HEAD~1 HEAD` to get the changes from the last commit.
+ * Fetches the last 20 commits from the repository in a formatted list.
+ * @returns {Promise<string[]>} A list of formatted commit strings.
+ */
+export async function getRecentCommits(): Promise<string[]> {
+  try {
+    const output = await runGitCommand(['log', '--pretty=format:%h|%an|%ar|%s', '-n', '20']);
+    if (!output) {
+        return [];
+    }
+    return output.split('\n');
+  } catch (error) {
+    logger.error(error, "Failed to execute 'git log' command");
+    return [];
+  }
+}
+
+/**
+ * Gets the diff between two commit hashes.
+ * @param {string} startHash The older commit hash.
+ * @param {string} endHash The newer commit hash.
  * @returns {Promise<string>} The output of the git diff command.
  */
-export async function getLatestCommitDiff(): Promise<string> {
+export async function getDiffBetweenCommits(startHash: string, endHash: string): Promise<string> {
   try {
-    const { stdout } = await execAsync('git diff HEAD~1 HEAD');
-    return stdout;
+    return await runGitCommand(['diff', startHash, endHash]);
   } catch (error: any) {
     if (error.message.includes('unknown revision')) {
-        throw new Error('Could not get diff. This might be the first commit in the repository.');
+        throw new Error(`Could not get diff. One of the commits may be invalid.`);
     }
     throw error;
   }

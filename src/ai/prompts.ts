@@ -116,3 +116,22 @@ ${codeContent}
 
 Code with Documentation:`;
 }
+
+/**
+ * Constructs a prompt for generating a unit test.
+ * @param {string} symbolContent - The source code of the symbol(s) to test.
+ * @param {string} framework - The testing framework to use (e.g., 'jest', 'vitest').
+ * @returns {string} The formatted prompt string.
+ */
+export function constructTestPrompt(symbolContent: string, framework: string): string {
+  return `You are an expert software quality assurance engineer specializing in automated testing.
+Your task is to write a comprehensive and effective unit test for the provided code snippet using the ${framework} testing framework.
+The test should cover the main functionality and at least one edge case.
+Only output the raw, complete code for the test file. Do not include explanations, markdown, or any text other than the code itself.
+
+<CODE TO TEST>
+${symbolContent}
+</CODE TO TEST>
+
+${framework} test file:`;
+}

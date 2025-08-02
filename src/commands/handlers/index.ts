@@ -10,3 +10,4 @@ export * from './generate.js';
 export * from './utils.js';
 export * from './refactor.js';
 export * from './add-docs.js';
+export * from './test.js';

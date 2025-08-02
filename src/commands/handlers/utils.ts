@@ -6,6 +6,8 @@
 import { promises as fs } from 'fs';
 import * as diff from 'diff';
 import { AppContext } from '../../types.js';
+import { scanProject } from '../../codebase/index.js';
+import inquirer from 'inquirer';
 
 /**
  * Extracts code from a markdown block (e.g., ```typescript\n...\n```).
@@ -44,7 +46,6 @@ export async function confirmAndApplyChanges(filePath: string, originalContent: 
 
   logger.info('--- End of Changes ---');
 
-  const { default: inquirer } = await import('inquirer');
   const { apply } = await inquirer.prompt([
     {
       type: 'confirm',
@@ -56,8 +57,42 @@ export async function confirmAndApplyChanges(filePath: string, originalContent: 
 
   if (apply) {
     await fs.writeFile(filePath, newContent, 'utf-8');
-    logger.info(`Changes applied to ${filePath}`);
+    logger.info(`✅ Changes applied to ${filePath}`);
   } else {
     logger.info('Changes discarded.');
   }
+}
+
+/**
+ * Prompts the user to select a file from the project using a fuzzy-searchable list.
+ * @param message The message to display to the user.
+ * @param context The application context.
+ * @returns {Promise<string>} The path to the selected file.
+ */
+export async function promptForFile(message: string, context: AppContext): Promise<string> {
+  const { logger } = context;
+  const { default: fuzzy } = await import('inquirer-fuzzy-path');
+  
+  inquirer.registerPrompt('fuzzy-path', fuzzy);
+  
+  logger.info('🔍 Scanning for project files (respecting .gitignore)...');
+  // This is the key step: we get the pre-filtered list of files first.
+  const files = await scanProject('.');
+  files.unshift('.. (Back to Main Menu)');
+
+  const { filePath } = await inquirer.prompt([
+    {
+      type: 'fuzzy-path',
+      name: 'filePath',
+      message: message,
+      itemType: 'file',
+      rootPath: '.',
+      suggestOnly: false,
+      depthLimit: 5,
+      // We pass our filtered list to the prompt.
+      paths: files, 
+    } as any,
+  ]);
+
+  return filePath;
 }

@@ -33,7 +33,6 @@ export function parseArgs() {
         });
       }
     )
-    // Add the new report command here
     .command(
       'report',
       'Generates a high-level analysis report for the entire project'
@@ -53,6 +52,10 @@ export function parseArgs() {
             type: 'string',
             description: 'A detailed description of the code to generate',
             demandOption: true,
+          })
+          .option('output', {
+            type: 'string',
+            description: 'File path to save the generated code'
           });
       }
     )
@@ -74,6 +77,17 @@ export function parseArgs() {
       'Adds JSDoc comments to a file',
       (y) => {
         return y.positional('file', { describe: 'The file to document', type: 'string' });
+      }
+    )
+    .command(
+      'test <file>',
+      'Generates a unit test for a specific function or class',
+      (y) => {
+        return y
+          .positional('file', { describe: 'The file containing the code to test', type: 'string' })
+          .option('symbol', { type: 'string', description: 'The name of the function/class to test', demandOption: true })
+          .option('framework', { type: 'string', description: 'The test framework to use (e.g., jest, vitest)', default: 'jest' })
+          .option('output', { type: 'string', description: 'File path to save the new test file' });
       }
     )
     .option('profile', {

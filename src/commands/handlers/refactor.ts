@@ -4,7 +4,7 @@ import { AppContext } from '../../types.js';
 import { confirmAndApplyChanges, extractCode } from './utils.js';
 
 export async function handleRefactorCommand(context: AppContext): Promise<void> {
-  const { logger, aiClient, args } = context;
+  const { logger, aiProvider, args } = context;
   const filePath = args.file;
   const userPrompt = args.prompt;
 
@@ -16,7 +16,7 @@ export async function handleRefactorCommand(context: AppContext): Promise<void> 
   const originalCode = await fs.readFile(filePath, 'utf-8');
   
   const prompt = constructRefactorPrompt(userPrompt, originalCode);
-  const response = await aiClient.getCompletion(prompt, false);
+  const response = await aiProvider.invoke(prompt, false);
   const rawCode = response?.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!rawCode) {

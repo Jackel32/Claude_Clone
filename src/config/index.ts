@@ -52,7 +52,6 @@ async function ensureConfigExists(): Promise<void> {
  * @returns {Promise<Profile>} The fully resolved profile settings.
  */
 export async function getProfile(profileName?: string): Promise<Profile> {
-  // FIX: Implement the caching logic to prevent re-reading the file.
   if (loadedConfig) {
     const targetProfileName = profileName || loadedConfig.defaultProfile;
     const defaultProfileSettings = loadedConfig.profiles.default || {};

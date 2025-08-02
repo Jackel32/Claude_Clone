@@ -12,7 +12,7 @@ import { AppContext } from '../../types.js';
  * @param {AppContext} context - The application context.
  */
 export async function handleReportCommand(context: AppContext): Promise<void> {
-  const { logger, aiClient } = context;
+  const { logger, aiProvider } = context;
 
   logger.info('Scanning project to generate report...');
   const files = await scanProject('.');
@@ -36,7 +36,7 @@ export async function handleReportCommand(context: AppContext): Promise<void> {
   
   try {
     logger.info('\n--- AI Codebase Report ---');
-    const stream = await aiClient.getCompletion(prompt, true);
+    const stream = await aiProvider.invoke(prompt, true);
     await processStream(stream);
     logger.info('--- End of Report ---\n');
   } catch (error) {

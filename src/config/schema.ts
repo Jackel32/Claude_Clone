@@ -13,6 +13,8 @@ export interface Profile {
   model?: string;
   /** The sampling temperature for the AI model (0.0 - 1.0). */
   temperature?: number;
+  /** The provider for the AI model. */
+  provider?: string;
   /** Settings related to Retrieval-Augmented Generation (RAG). */
   rag?: {
     /** The number of top results to retrieve from the vector index. */

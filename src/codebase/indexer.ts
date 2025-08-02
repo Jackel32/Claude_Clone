@@ -5,7 +5,6 @@
 
 import * as crypto from 'crypto';
 import * as path from 'path';
-// FIX: Use fs/promises directly for more control over error handling
 import { promises as fs } from 'fs';
 import { writeFile } from '../fileops/writer.js';
 import { CACHE_DIR } from '../config/index.js';
