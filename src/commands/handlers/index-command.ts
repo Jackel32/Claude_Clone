@@ -1,55 +1,60 @@
 /**
- * @file Handler for the `index` command.
+ * @file src/commands/handlers/index-command.ts
+ * @description Handler for the 'index' command.
  */
 
 import * as path from 'path';
-import { scanProject, checkCache, updateCache } from '../../codebase';
-import { findGitRoot } from '../../fileops';
-
-interface IndexCommandOptions {
-  path?: string;
-  profile?: string;
-}
+import { promises as fs } from 'fs';
+import { scanProject } from '../../codebase/scanner.js';
+import { checkCache, updateCache } from '../../codebase/indexer.js';
+import { vectorIndex, updateVectorIndex } from '../../codebase/vectorizer.js';
+import { AppContext } from '../../types.js';
+import * as cliProgress from 'cli-progress';
 
 /**
- * Handles the logic for the 'index' command.
- * It scans a project, checks for changes against a cache, and simulates
- * updating the cache for new or modified files.
- * @param options - The command options, including the project path.
+ * Handles the logic for indexing a codebase into the vector DB.
+ * @param {AppContext} context - The application context.
  */
-export async function handleIndexCommand(options: IndexCommandOptions): Promise<void> {
-  let projectRoot = options.path ? path.resolve(options.path) : process.cwd();
-
-  const gitRoot = await findGitRoot(projectRoot);
-  if (gitRoot) {
-    console.log(`Git repository found. Setting project root to: ${gitRoot}`);
-    projectRoot = gitRoot;
-  } else {
-    console.log(`No Git repository found. Using directory: ${projectRoot}`);
-  }
+export async function handleIndexCommand(context: AppContext): Promise<void> {
+  const { logger, aiClient, args } = context;
+  const projectPath = path.resolve(args.path || '.');
   
-  console.log(`Starting project scan at: ${projectRoot}...`);
-  const files = await scanProject(projectRoot);
-  console.log(`Found ${files.length} files to analyze.`);
+  logger.info(`Scanning project at ${projectPath}...`);
+  const files = await scanProject(projectPath);
+  logger.info(`Found ${files.length} files to analyze.`);
 
-  let changedCount = 0;
+  logger.info('Ensuring vector index exists...');
+  if (!(await vectorIndex.isIndexCreated())) {
+    await vectorIndex.createIndex();
+    logger.info('Vector index created.');
+  }
+
+  const filesToIndex: string[] = [];
   for (const file of files) {
     const cachedAnalysis = await checkCache(file);
-    if (cachedAnalysis) {
-      // In a real app, you'd use the cached data.
-    } else {
-      changedCount++;
-      console.log(`[CHANGED] ${path.relative(projectRoot, file)}`);
-      // This is where you would perform the actual analysis (e.g., call an AI)
-      // For now, we just simulate it by updating the cache with a placeholder.
-      const simulatedAnalysis = { status: 'analyzed', indexedAt: new Date().toISOString() };
-      await updateCache(file, simulatedAnalysis);
+    if (!cachedAnalysis) {
+      filesToIndex.push(file);
     }
   }
 
-  if (changedCount > 0) {
-    console.log(`\nSuccessfully indexed ${changedCount} new or modified file(s).`);
-  } else {
-    console.log(`\nProject is up to date. No files needed indexing.`);
+  if (filesToIndex.length === 0) {
+    logger.info(`\nCodebase is already up-to-date.`);
+    return;
   }
+
+  logger.info(`Vectorizing ${filesToIndex.length} new or modified files...`);
+
+  // Create and start the progress bar
+  const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
+  progressBar.start(filesToIndex.length, 0);
+
+  for (const file of filesToIndex) {
+    const content = await fs.readFile(file, 'utf-8');
+    await updateVectorIndex(file, content, aiClient);
+    await updateCache(file, { vectorizedAt: new Date().toISOString() });
+    progressBar.increment();
+  }
+
+  progressBar.stop();
+  logger.info(`\nSuccessfully vectorized ${filesToIndex.length} files.`);
 }

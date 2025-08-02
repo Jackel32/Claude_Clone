@@ -1,4 +1,4 @@
 /**
  * @file Barrel file for the auth module.
  */
-export * from './tokens';
+export * from './tokens.js';

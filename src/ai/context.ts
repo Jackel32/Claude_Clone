@@ -2,7 +2,7 @@
  * @file Functions for gathering and formatting context for the AI.
  */
 
-import { readFile } from '../fileops';
+import { readFile } from '../fileops/reader.js';
 
 /**
  * Reads multiple files and formats their contents into a single string

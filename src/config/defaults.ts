@@ -3,7 +3,7 @@
  * This is used as a fallback and to create the initial config file.
  */
 
-import { Config } from './schema';
+import { Config } from './schema.js';
 
 /**
  * The default configuration object.
@@ -14,9 +14,12 @@ export const defaultConfig: Config = {
   defaultProfile: 'default',
   profiles: {
     default: {
-      apiKey: 'YOUR_API_KEY_HERE', // User should replace this
-      model: 'your-custom-model/v1',
-      temperature: 0.5,
+      apiKey: 'AIzaSyDACYbCDEAtTELSFcTahQsezKfh4ul5Bfw', // User should replace this
+      model: 'gemini-2.5-flash',
+      temperature: 0.7,
+      rag: {
+        topK: 3, // Default number of results to retrieve
+      },
     },
   },
 };

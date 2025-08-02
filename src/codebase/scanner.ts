@@ -1,64 +1,68 @@
 /**
- * @file Scans a project directory for relevant files, respecting .gitignore.
+ * @file src/codebase/scanner.ts
+ * @description Scans a project directory for relevant files, respecting .gitignore.
  */
 
-import * as fs from 'fs/promises';
+import { promises as fs } from 'fs';
 import * as path from 'path';
-import { default as ignore, Ignore } from 'ignore';
-import { readFile } from '../fileops';
+// FIX: Use createRequire to bypass ESM import issues for the 'ignore' package.
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
 
-const ALWAYS_IGNORED = ['.git', 'node_modules'];
+const ignore = require('ignore');
 
-/**
- * Creates an ignore filter instance, loading rules from a .gitignore file if present.
- * @param projectRoot - The root directory of the project.
- * @returns A promise that resolves to an `ignore` instance.
- */
-async function getIgnoreFilter(projectRoot: string): Promise<Ignore> {
-  const ig = ignore();
-  ig.add(ALWAYS_IGNORED);
-
-  const gitignorePath = path.join(projectRoot, '.gitignore');
-  try {
-    const gitignoreContent = await readFile(gitignorePath);
-    ig.add(gitignoreContent);
-  } catch (error) {
-    // .gitignore not found or unreadable, which is fine.
-  }
-  return ig;
-}
+import { findGitRoot, isGitRepository, readFile } from '../fileops/index.js';
 
 /**
- * Recursively scans a project directory and returns a list of all non-ignored files.
- * @param projectRoot - The absolute path to the root of the project to scan.
- * @returns A promise that resolves to an array of absolute file paths.
+ * Scans a project directory recursively and returns a list of all files,
+ * respecting .gitignore rules if present.
+ * @param {string} projectRoot - The root directory of the project to scan.
+ * @returns {Promise<string[]>} A list of absolute file paths.
  */
 export async function scanProject(projectRoot: string): Promise<string[]> {
-  const fileList: string[] = [];
-  const ig = await getIgnoreFilter(projectRoot);
+  const ig = ignore();
+  
+  ig.add(['.git', 'node_modules']);
 
-  async function recursiveScan(currentDir: string) {
-    try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const relativePath = path.relative(projectRoot, fullPath);
-
-        if (ig.ignores(relativePath)) {
-          continue;
+  const isGitRepo = await isGitRepository(projectRoot);
+  if (isGitRepo) {
+    const gitRoot = await findGitRoot(projectRoot);
+    if (gitRoot) {
+        const gitignorePath = path.join(gitRoot, '.gitignore');
+        try {
+          const gitignoreContent = await readFile(gitignorePath);
+          ig.add(gitignoreContent);
+        } catch (error) {
+          // .gitignore not found, which is fine.
         }
-
-        if (entry.isDirectory()) {
-          await recursiveScan(fullPath);
-        } else if (entry.isFile()) {
-          fileList.push(fullPath);
-        }
-      }
-    } catch (err) {
-        console.error(`Could not read directory: ${currentDir}`, err);
     }
   }
 
-  await recursiveScan(projectRoot);
-  return fileList;
+  const files: string[] = [];
+  const queue: string[] = [projectRoot];
+
+  while (queue.length > 0) {
+    const currentDir = queue.shift()!;
+    try {
+        const entries = await fs.readdir(currentDir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(currentDir, entry.name);
+            const relativePath = path.relative(projectRoot, fullPath);
+
+            if (ig.ignores(relativePath)) {
+                continue;
+            }
+
+            if (entry.isDirectory()) {
+                queue.push(fullPath);
+            } else {
+                files.push(fullPath);
+            }
+        }
+    } catch (error) {
+        // Ignore errors from directories we can't read (e.g., permissions)
+    }
+  }
+
+  return files;
 }

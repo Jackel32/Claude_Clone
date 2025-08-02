@@ -1,48 +1,55 @@
-/**
- * @file Utilities for interacting with Version Control Systems (VCS), primarily Git.
- */
-
-import * as fs from 'fs/promises';
+import { promises as fs } from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+// Promisify exec for async/await syntax
+const execAsync = promisify(exec);
 
 /**
- * Checks if a given directory is the root of a Git repository.
- * @param dirPath - The directory path to check. Defaults to the current working directory.
- * @returns A promise that resolves to true if it is a Git repository, false otherwise.
+ * Checks if a directory is a Git repository by looking for a .git directory.
+ * @param {string} [startPath=''] - The path to start checking from. Defaults to the current working directory.
+ * @returns {Promise<boolean>} True if it's a Git repository, false otherwise.
  */
-export async function isGitRepository(dirPath: string = process.cwd()): Promise<boolean> {
-  try {
-    const gitDirStat = await fs.stat(path.join(dirPath, '.git'));
-    return gitDirStat.isDirectory();
-  } catch (error) {
-    return false;
-  }
+export async function isGitRepository(startPath: string = '.'): Promise<boolean> {
+  const gitRoot = await findGitRoot(startPath);
+  return !!gitRoot;
 }
 
 /**
  * Finds the root directory of the Git repository by traversing up from a starting path.
- * @param startPath - The path to start searching from. Defaults to the current working directory.
- * @returns A promise that resolves to the root directory path, or null if not found.
+ * @param {string} [startPath=''] - The path to start searching from.
+ * @returns {Promise<string | null>} The path to the Git root, or null if not found.
  */
-export async function findGitRoot(startPath: string = process.cwd()): Promise<string | null> {
+export async function findGitRoot(startPath: string = '.'): Promise<string | null> {
   let currentPath = path.resolve(startPath);
-  const systemRoot = path.parse(currentPath).root;
-
-  while (currentPath !== systemRoot) {
-    if (await isGitRepository(currentPath)) {
-      return currentPath;
+  while (currentPath !== path.parse(currentPath).root) {
+    const gitPath = path.join(currentPath, '.git');
+    try {
+      const stats = await fs.stat(gitPath);
+      if (stats.isDirectory()) {
+        return currentPath;
+      }
+    } catch (error) {
+      // ignore error, means file/dir doesn't exist
     }
-    const parentPath = path.dirname(currentPath);
-    if (parentPath === currentPath) { // Reached the top without finding it
-        break;
-    }
-    currentPath = parentPath;
+    currentPath = path.dirname(currentPath);
   }
-  
-  // Final check at the very root for cases like '/'
-  if (await isGitRepository(currentPath)) {
-      return currentPath;
-  }
-
   return null;
+}
+
+/**
+ * Executes `git diff HEAD~1 HEAD` to get the changes from the last commit.
+ * @returns {Promise<string>} The output of the git diff command.
+ */
+export async function getLatestCommitDiff(): Promise<string> {
+  try {
+    const { stdout } = await execAsync('git diff HEAD~1 HEAD');
+    return stdout;
+  } catch (error: any) {
+    if (error.message.includes('unknown revision')) {
+        throw new Error('Could not get diff. This might be the first commit in the repository.');
+    }
+    throw error;
+  }
 }

@@ -1,25 +1,18 @@
 #!/usr/bin/env node
+import { logger } from './logger/index.js';
+import { startMainMenu } from './app.js'; // Import our new main loop
 
 /**
- * @file The main entry point for the Kinch Code CLI application.
- */
-
-import { parseArgs, executeCommand } from './commands';
-
-/**
- * The main function that orchestrates the CLI execution.
- * It parses arguments, executes the corresponding command, and handles global errors.
+ * The main entry point for the application.
  */
 async function main() {
   try {
-    const args = await parseArgs();
-    await executeCommand(args);
-  } catch (error: any) {
-    console.error('\nAn unexpected error occurred:');
-    console.error(error.message || error);
+    // Start the interactive menu instead of parsing args
+    await startMainMenu();
+  } catch (error) {
+    logger.error(error, 'An unexpected error occurred and the application has to exit.');
     process.exit(1);
   }
 }
 
-// Execute the main function
 main();

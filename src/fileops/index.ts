@@ -2,6 +2,6 @@
  * @file Barrel file for the fileops module.
  */
 
-export * from './reader';
-export * from './writer';
-export * from './vcs';
+export * from './reader.js';
+export * from './writer.js';
+export * from './vcs.js';

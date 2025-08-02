@@ -1,102 +1,91 @@
 /**
- * @file Manages caching of file analysis to avoid re-processing unchanged files.
+ * @file src/codebase/indexer.ts
+ * @description Caching mechanism for file analysis.
  */
 
 import * as crypto from 'crypto';
 import * as path from 'path';
-import { getCacheDir } from '../config';
-import { readFile, writeFile } from '../fileops';
+// FIX: Use fs/promises directly for more control over error handling
+import { promises as fs } from 'fs';
+import { writeFile } from '../fileops/writer.js';
+import { CACHE_DIR } from '../config/index.js';
 
-const CACHE_FILE = 'analysis_cache.json';
+const CACHE_FILE = path.join(CACHE_DIR, 'analysis_cache.json');
 
 interface CacheEntry {
   hash: string;
-  analysis: any; // Could be a more specific type for analysis results
-  timestamp: number;
+  analysis: any;
 }
 
-interface AnalysisCache {
-  [filePath: string]: CacheEntry;
-}
+type AnalysisCache = Record<string, CacheEntry>;
 
 /**
- * Computes the SHA256 hash of a file's content.
- * @param content - The content of the file.
- * @returns The SHA256 hash as a hex string.
+ * Computes the SHA256 hash of a string.
+ * @param {string} content - The content to hash.
+ * @returns {string} The hex-encoded SHA256 hash.
  */
-function computeHash(content: string): string {
+function getHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
 /**
- * Loads the entire analysis cache from the disk.
- * @returns A promise that resolves to the `AnalysisCache` object.
+ * Loads the analysis cache from disk.
+ * @returns {Promise<AnalysisCache>} The loaded cache object.
  */
 async function loadCache(): Promise<AnalysisCache> {
-  const cachePath = path.join(getCacheDir(), CACHE_FILE);
+  // FIX: This new implementation specifically handles the ENOENT error silently.
   try {
-    const content = await readFile(cachePath);
-    return JSON.parse(content) as AnalysisCache;
-  } catch (error) {
-    // Cache file doesn't exist or is invalid, return empty cache
-    return {};
+    const content = await fs.readFile(CACHE_FILE, 'utf-8');
+    return JSON.parse(content);
+  } catch (error: any) {
+    // If the file doesn't exist, this is expected on the first run.
+    // Return an empty object and don't log an error.
+    if (error.code === 'ENOENT') {
+      return {};
+    }
+    // For any other unexpected error, re-throw it so we know about it.
+    throw error;
   }
 }
 
 /**
- * Saves the entire analysis cache to the disk.
- * @param cache - The `AnalysisCache` object to save.
- * @returns A promise that resolves when the cache is saved.
+ * Saves the analysis cache to disk.
+ * @param {AnalysisCache} cache - The cache object to save.
  */
 async function saveCache(cache: AnalysisCache): Promise<void> {
-  const cachePath = path.join(getCacheDir(), CACHE_FILE);
-  await writeFile(cachePath, JSON.stringify(cache, null, 2));
+  await writeFile(CACHE_FILE, JSON.stringify(cache, null, 2));
 }
 
 /**
- * Checks if a valid, up-to-date analysis exists in the cache for a given file.
- * @param filePath - The absolute path of the file to check.
- * @returns A promise that resolves to the cached analysis if valid, otherwise null.
+ * Checks if a file has a valid, up-to-date analysis in the cache.
+ * @param {string} filePath - The path of the file to check.
+ * @returns {Promise<any | null>} The cached analysis if valid, otherwise null.
  */
 export async function checkCache(filePath: string): Promise<any | null> {
-  const cache = await loadCache();
-  const entry = cache[filePath];
-  if (!entry) {
-    return null;
-  }
-
   try {
-    const content = await readFile(filePath);
-    const currentHash = computeHash(content);
-    if (currentHash === entry.hash) {
-      return entry.analysis; // Cache hit
+    const content = await fs.readFile(filePath, 'utf-8');
+    const hash = getHash(content);
+    const cache = await loadCache();
+
+    if (cache[filePath] && cache[filePath].hash === hash) {
+      return cache[filePath].analysis;
     }
   } catch (error) {
-    // File might have been deleted, treat as cache miss
-    return null;
+    // File might have been deleted, etc.
   }
-  
-  return null; // Cache miss (hash mismatch)
+  return null;
 }
 
 /**
- * Updates the cache with a new analysis for a given file.
- * @param filePath - The absolute path of the file being updated.
- * @param analysis - The new analysis result to store.
- * @returns A promise that resolves when the cache has been updated.
+ * Updates the cache with a new analysis for a file.
+ * @param {string} filePath - The path of the file to update.
+ * @param {any} analysis - The new analysis result to store.
  */
 export async function updateCache(filePath: string, analysis: any): Promise<void> {
+  const content = await fs.readFile(filePath, 'utf-8');
+  const hash = getHash(content);
   const cache = await loadCache();
-  try {
-    const content = await readFile(filePath);
-    const hash = computeHash(content);
-    cache[filePath] = {
-      hash,
-      analysis,
-      timestamp: Date.now(),
-    };
-    await saveCache(cache);
-  } catch(error) {
-    console.error(`Failed to update cache for ${filePath}`, error);
-  }
+
+  cache[filePath] = { hash, analysis };
+  await saveCache(cache);
 }

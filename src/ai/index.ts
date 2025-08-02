@@ -1,7 +1,7 @@
 /**
  * @file Barrel file for the AI module.
  */
-export * from './client';
-export * from './context';
-export * from './prompts';
-export * from './response';
+export * from './client.js';
+export * from './context.js';
+export * from './prompts.js';
+export * from './response.js';

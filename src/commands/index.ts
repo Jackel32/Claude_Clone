@@ -1,5 +1,5 @@
 /**
  * @file Barrel file for the commands module.
  */
-export * from './parser';
-export * from './executor';
+export * from './parser.js';
+export * from './executor.js';

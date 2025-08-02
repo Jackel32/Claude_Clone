@@ -1,40 +1,39 @@
 /**
- * @file Handler for the `explain` command.
+ * @file src/commands/handlers/explain.ts
+ * @description Handler for the 'explain' command.
  */
-import { AIClient, constructPrompt, gatherFileContext, processStream } from '../../ai';
 
-interface ExplainCommandOptions {
-  files: string[];
-  profile?: string;
-}
+import { gatherFileContext, constructPrompt, processStream } from '../../ai/index.js';
+import { AppContext } from '../../types.js';
 
 /**
- * Handles the logic for the 'explain' command.
- * It reads specified files, constructs a prompt, sends it to the AI,
- * and streams the response.
- * @param options - The command options, including file paths and profile name.
+ * Handles the logic for explaining a piece of code.
+ * @param {AppContext} context - The application context.
  */
-export async function handleExplainCommand(options: ExplainCommandOptions): Promise<void> {
-  if (!options.files || options.files.length === 0) {
-    console.error('Error: You must specify at least one file to explain.');
-    process.exit(1);
+export async function handleExplainCommand(context: AppContext): Promise<void> {
+  // Destructure dependencies from the context object
+  const { aiClient, logger, args } = context;
+  const { files } = args;
+
+  if (!files || files.length === 0) {
+    throw new Error('You must specify at least one file to explain.');
   }
 
-  console.log(`Gathering context from ${options.files.length} file(s)...`);
-  const fileContext = await gatherFileContext(options.files);
+  const userQuery = args._.slice(1).join(' ');
+  if (!userQuery) {
+    throw new Error('You must provide a question to ask the AI.');
+  }
 
-  const userQuery = `Please explain the following code. Focus on the overall architecture, the purpose of each file, and how they interact.`;
+  logger.info('Gathering context from files...');
+  const fileContext = await gatherFileContext(files);
+
+  logger.info('Constructing prompt and calling AI...');
   const prompt = constructPrompt(userQuery, fileContext);
-
-  console.log('Connecting to AI backend...');
-  const client = new AIClient(options.profile);
   
   try {
-    await client.initialize();
-    const response = await client.getCompletion(prompt, true);
-    await processStream(response);
-  } catch (error: any) {
-    console.error(`\nError during AI interaction: ${error.message}`);
-    process.exit(1);
+    const stream = await aiClient.getCompletion(prompt, true);
+    await processStream(stream);
+  } catch (error) {
+    logger.error(error, 'AI API Error during explain command');
   }
 }

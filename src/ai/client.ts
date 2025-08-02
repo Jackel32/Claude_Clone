@@ -1,98 +1,114 @@
 /**
- * @file The client for interacting with the custom AI backend.
+ * @file src/ai/client.ts
+ * @description A client for interacting with the Google Gemini AI backend.
  */
 
-import { getApiKey } from '../auth';
-
-// IMPORTANT: Modify this URL to point to your custom AI backend's endpoint.
-const API_ENDPOINT_URL = 'https://api.custom-ai-provider.com/v1/completions';
-
+const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MAX_CALLS_PER_MINUTE = 20;
-const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
-/**
- * Manages API call timestamps for rate limiting.
- */
-const apiCallTimestamps: number[] = [];
+const requestTimestamps: number[] = [];
 
 /**
  * Enforces a simple in-memory rate limit.
- * @throws An error if the rate limit is exceeded.
+ * @throws {Error} If the rate limit is exceeded.
  */
-function enforceRateLimit() {
+function checkRateLimit() {
   const now = Date.now();
-  
-  // Remove timestamps older than the window
-  while (apiCallTimestamps.length > 0 && apiCallTimestamps[0] < now - RATE_LIMIT_WINDOW_MS) {
-    apiCallTimestamps.shift();
+  const oneMinuteAgo = now - 60 * 1000;
+
+  while (requestTimestamps.length > 0 && requestTimestamps[0] < oneMinuteAgo) {
+    requestTimestamps.shift();
   }
 
-  if (apiCallTimestamps.length >= MAX_CALLS_PER_MINUTE) {
-    const waitTime = Math.ceil((apiCallTimestamps[0] + RATE_LIMIT_WINDOW_MS - now) / 1000);
-    throw new Error(`Rate limit exceeded. Please wait ${waitTime} seconds before trying again.`);
+  if (requestTimestamps.length >= MAX_CALLS_PER_MINUTE) {
+    throw new Error('Rate limit exceeded (20 calls/minute). Please wait a moment before trying again.');
   }
-
-  apiCallTimestamps.push(now);
 }
 
 /**
- * Represents the client for making requests to the AI model.
+ * Records a new API call for rate limiting.
  */
+function recordApiCall() {
+  requestTimestamps.push(Date.now());
+}
+
 export class AIClient {
-  private apiKey: string = '';
-  private profileName?: string;
+  private apiKey: string;
+  private model: string;
+  private temperature: number;
 
-  /**
-   * Constructs an AIClient instance.
-   * @param profileName - The configuration profile to use for this client.
-   */
-  constructor(profileName?: string) {
-    this.profileName = profileName;
+  constructor(apiKey: string, model: string, temperature: number = 0.7) {
+    this.apiKey = apiKey;
+    this.model = model;
+    this.temperature = temperature;
   }
 
   /**
-   * Initializes the client by fetching the API key.
-   * Must be called before making API requests.
+   * Sends a prompt to the Gemini API backend and gets a completion.
+   * @param {string} prompt - The prompt to send.
+   * @param {boolean} stream - Whether to stream the response.
+   * @returns {Promise<any>} The response body, either as JSON or a ReadableStream.
    */
-  async initialize(): Promise<void> {
-    this.apiKey = await getApiKey(this.profileName);
-  }
+  async getCompletion(prompt: string, stream: boolean): Promise<any> {
+    checkRateLimit();
 
-  /**
-   * Sends a prompt to the AI backend and gets a completion.
-   * @param prompt - The prompt to send to the AI.
-   * @param stream - Whether to request a streaming response.
-   * @returns A promise that resolves to the API response.
-   */
-  async getCompletion(prompt: string, stream: boolean = true): Promise<Response> {
-    if (!this.apiKey) {
-      throw new Error('AIClient not initialized. Call initialize() before making requests.');
-    }
+    const action = stream ? 'streamGenerateContent' : 'generateContent';
+    const endpoint = `${API_BASE_URL}/${this.model}:${action}?key=${this.apiKey}`;
     
-    enforceRateLimit();
-
+    // Gemini API has a different request structure
     const body = {
-      model: 'your-custom-model/v1', // This could be dynamically set from config
-      prompt: prompt,
-      stream: stream,
-      max_tokens_to_sample: 100000,
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: this.temperature,
+      },
     };
 
-    const response = await fetch(API_ENDPOINT_URL, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.apiKey,
-        'anthropic-version': '2023-06-01' // Example header
       },
+      body: JSON.stringify(body),
+    });
+    
+    recordApiCall();
+
+    if (!response.ok) {
+      const errorBody = await response.json();
+      const errorMessage = errorBody.error?.message || 'Unknown API error';
+      throw new Error(`API request failed with status ${response.status}: ${errorMessage}`);
+    }
+
+    return stream ? response.body : response.json();
+  }
+
+  /**
+   * Generates a vector embedding for a given text.
+   * @param {string} text - The text to embed.
+   * @returns {Promise<number[]>} The vector embedding.
+   */
+  async getEmbedding(text: string): Promise<number[]> {
+    // Note: You should use a dedicated embedding model, like 'text-embedding-004'
+    const embeddingModel = 'text-embedding-004'; 
+    const endpoint = `${API_BASE_URL}/${embeddingModel}:embedContent?key=${this.apiKey}`;
+    
+    const body = {
+      content: { parts: [{ text }] },
+    };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
+      const errorBody = await response.json();
+      throw new Error(`Embedding request failed: ${errorBody.error?.message}`);
     }
 
-    return response;
+    const result = await response.json();
+    return result.embedding.values;
   }
+
 }
