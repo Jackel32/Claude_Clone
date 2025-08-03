@@ -215,3 +215,21 @@ User Task: "${userTask}"
 
 Your JSON response:`;
 }
+
+/**
+ * Constructs a prompt that asks the AI to analyze a git diff.
+ * @param {string} diffContent - The raw git diff output.
+ * @returns {string} The formatted prompt string.
+ */
+export function constructDiffAnalysisPrompt(diffContent: string): string {
+  return `You are an expert senior software engineer performing a code review.
+Analyze the following git diff and provide a high-level summary of the changes.
+Focus on the overall purpose of the changes, identify the most significant modifications, and point out any potential issues or improvements.
+Structure your analysis with clear headings.
+
+<GIT DIFF>
+${diffContent}
+</GIT DIFF>
+
+Analysis:`;
+}

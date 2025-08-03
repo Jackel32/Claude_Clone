@@ -32,7 +32,7 @@ export async function handleDiffCommand(context: AppContext): Promise<void> {
     throw new Error('This is not a git repository. The "diff" command requires git.');
   }
   
-  const commits = await getRecentCommits();
+  const commits = await getRecentCommits('.');
   if (commits.length === 0) {
       logger.info('No commits found in this repository.');
       return;
@@ -51,17 +51,18 @@ export async function handleDiffCommand(context: AppContext): Promise<void> {
   }]);
 
   let diffContent = '';
+  const cwd = '.';
 
   if (mode === 'Compare a single commit to its parent') {
       const commitHash = await selectCommit('Select a commit to analyze:', commits);
       if (!commitHash) return;
-      diffContent = await getDiffBetweenCommits(`${commitHash}~1`, commitHash);
+      diffContent = await getDiffBetweenCommits(`${commitHash}~1`, commitHash, cwd);
   } else if (mode === 'Compare two commits against each other') {
       const startHash = await selectCommit('Select the START commit (older):', commits);
       if (!startHash) return;
       const endHash = await selectCommit('Select the END commit (newer):', commits);
       if (!endHash) return;
-      diffContent = await getDiffBetweenCommits(startHash, endHash);
+      diffContent = await getDiffBetweenCommits(startHash, endHash, cwd);
   } else {
       return; // User selected 'Back'
   }

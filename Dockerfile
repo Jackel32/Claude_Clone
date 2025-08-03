@@ -14,8 +14,10 @@ RUN npm run build
 # ---- Stage 2: Create the final production image ----
 FROM node:20-alpine AS production
 
-# FIX: Set the Node.js environment to 'production'
 ENV NODE_ENV=production
+
+# Install git using the Alpine Linux package manager (apk)
+RUN apk update && apk add git
 
 WORKDIR /app
 

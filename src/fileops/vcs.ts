@@ -13,9 +13,9 @@ import { logger } from '../logger/index.js';
  * @param args An array of string arguments for the git command.
  * @returns {Promise<string>} The stdout from the command.
  */
-function runGitCommand(args: string[]): Promise<string> {
+function runGitCommand(args: string[], cwd: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const git = spawn('git', args);
+        const git = spawn('git', args, { cwd });
         let stdout = '';
         let stderr = '';
 
@@ -77,9 +77,9 @@ export async function findGitRoot(startPath: string = '.'): Promise<string | nul
  * Fetches the last 20 commits from the repository in a formatted list.
  * @returns {Promise<string[]>} A list of formatted commit strings.
  */
-export async function getRecentCommits(): Promise<string[]> {
+export async function getRecentCommits(cwd: string): Promise<string[]> {
   try {
-    const output = await runGitCommand(['log', '--pretty=format:%h|%an|%ar|%s', '-n', '20']);
+    const output = await runGitCommand(['log', '--pretty=format:%h|%an|%ar|%s', '-n', '20'], cwd);
     if (!output) {
         return [];
     }
@@ -96,9 +96,9 @@ export async function getRecentCommits(): Promise<string[]> {
  * @param {string} endHash The newer commit hash.
  * @returns {Promise<string>} The output of the git diff command.
  */
-export async function getDiffBetweenCommits(startHash: string, endHash: string): Promise<string> {
+export async function getDiffBetweenCommits(startHash: string, endHash: string, cwd: string): Promise<string> {
   try {
-    return await runGitCommand(['diff', startHash, endHash]);
+    return await runGitCommand(['diff', startHash, endHash], cwd);
   } catch (error: any) {
     if (error.message.includes('unknown revision')) {
         throw new Error(`Could not get diff. One of the commits may be invalid.`);

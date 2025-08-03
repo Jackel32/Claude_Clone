@@ -1,14 +1,12 @@
-# Git and Node dependencies
-.git
-.gitignore
+# Node dependencies (installed in the container)
 node_modules
 
-# Compiled output (we build this inside the container)
+# Compiled output (built in the container)
 dist
 
-# Local user config and cache
-.claude-code
-
-# Logs and other local files
+# Logs and user-specific files
 *.log
-README.md
+.DS_Store
+
+# User configuration and cache (managed by volumes)
+.claude-code/

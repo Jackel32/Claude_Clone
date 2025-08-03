@@ -1,49 +1,90 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- ELEMENT SELECTORS ---
+    const tabBar = document.getElementById('tab-bar');
+    const tabPanels = document.getElementById('tab-panels');
     const chatWindow = document.getElementById('chat-window');
     const chatForm = document.getElementById('chat-form');
     const messageInput = document.getElementById('message-input');
-    const modalOverlay = document.getElementById('modal-overlay');
-    const modalTitle = document.getElementById('modal-title');
-    const modalContent = document.getElementById('modal-content');
-    const modalActions = document.getElementById('modal-actions');
     const agentTaskBtn = document.getElementById('agent-task-btn');
     const addDocsBtn = document.getElementById('add-docs-btn');
     const refactorBtn = document.getElementById('refactor-btn');
     const testBtn = document.getElementById('test-btn');
     const gitDiffBtn = document.getElementById('git-diff-btn');
 
-    // --- WEBSOCKET SETUP ---
+    // --- TAB MANAGEMENT ---
+    let tabCounter = 0;
+
+    function createTab(title, makeActive = true) {
+        tabCounter++;
+        const tabId = `tab-${tabCounter}`;
+
+        const tab = document.createElement('div');
+        tab.className = 'tab';
+        tab.dataset.tabId = tabId;
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = title;
+        tab.appendChild(titleSpan);
+
+        const closeBtn = document.createElement('span');
+        closeBtn.className = 'close-tab';
+        closeBtn.innerHTML = '&times;';
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            closeTab(tabId);
+        };
+        tab.appendChild(closeBtn);
+        tabBar.appendChild(tab);
+        tab.onclick = () => switchToTab(tabId);
+
+        const panel = document.createElement('div');
+        panel.className = 'tab-panel';
+        panel.dataset.tabId = tabId;
+        tabPanels.appendChild(panel);
+
+        if (makeActive) {
+            switchToTab(tabId);
+        }
+        return panel;
+    }
+
+    function switchToTab(tabId) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        const tabToActivate = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+        if (tabToActivate) tabToActivate.classList.add('active');
+        
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        const panelToActivate = document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`);
+        if (panelToActivate) panelToActivate.classList.add('active');
+    }
+
+    function closeTab(tabId) {
+        if (tabId === 'home') return;
+        document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.remove();
+        document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`)?.remove();
+        switchToTab('home');
+    }
+    
+    function initHomeTab() {
+        const homeTab = document.createElement('div');
+        homeTab.className = 'tab active';
+        homeTab.dataset.tabId = 'home';
+        homeTab.textContent = 'Chat';
+        homeTab.onclick = () => switchToTab('home');
+        tabBar.appendChild(homeTab);
+    }
+    initHomeTab();
+
+    // --- WEBSOCKET & MESSAGE HANDLING ---
     const socket = new WebSocket(`ws://${window.location.host}`);
     let assistantMessageElement = null;
 
     socket.onopen = () => console.log('WebSocket connection established.');
-
+    
     socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
         displayMessage(message);
     };
-
-    // --- EVENT LISTENERS ---
-    chatForm.addEventListener('submit', handleChatSubmit);
-    if(agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
-    if(addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
-    if(refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
-    if(testBtn) testBtn.addEventListener('click', showTestDialog);
-    if(gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
-    modalOverlay.addEventListener('click', (e) => {
-        if (e.target === modalOverlay) hideModal();
-    });
-
-    // --- CORE UI FUNCTIONS ---
-    function createMessageElement(role, type = 'normal') {
-        const messageDiv = document.createElement('div');
-        messageDiv.classList.add('message', role);
-        if (type === 'error') messageDiv.style.color = '#ff8a8a';
-        const p = document.createElement('p');
-        messageDiv.appendChild(p);
-        return messageDiv;
-    }
 
     function displayMessage(message) {
         let el;
@@ -68,46 +109,55 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'start':
                 assistantMessageElement = createMessageElement('assistant');
                 chatWindow.prepend(assistantMessageElement);
-                return; // Don't prepend twice
+                return;
             case 'chunk':
                 if (assistantMessageElement) assistantMessageElement.firstChild.textContent += message.content;
-                return; // Don't prepend, just append text
+                return;
             case 'end':
                 assistantMessageElement = null;
-                return; // Don't prepend
+                return;
             case 'error':
                 el = createMessageElement('assistant', 'error');
                 el.firstChild.textContent = `Error: ${message.content}`;
                 break;
-            default:
-                return;
+            default: return;
         }
         if (el) chatWindow.prepend(el);
     }
     
-    function handleChatSubmit(e) {
+    // --- CHAT FORM LOGIC ---
+    chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const messageText = messageInput.value;
         if (messageText.trim() === '') return;
+
+        switchToTab('home');
         const userMessage = createMessageElement('user');
         userMessage.firstChild.textContent = messageText;
         chatWindow.prepend(userMessage);
+        
         socket.send(JSON.stringify({ type: 'chat', content: messageText }));
         messageInput.value = '';
+    });
+
+    function createMessageElement(role, type = 'normal') {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', role);
+        if (type === 'error') messageDiv.style.color = '#ff8a8a';
+        const p = document.createElement('p');
+        messageDiv.appendChild(p);
+        return messageDiv;
     }
 
-    function showModal(title) {
-        modalTitle.textContent = title;
-        modalContent.innerHTML = '';
-        modalActions.innerHTML = '';
-        modalOverlay.classList.remove('hidden');
-    }
+    // --- EVENT LISTENERS FOR ACTION BUTTONS ---
+    if(agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
+    if(addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
+    if(refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
+    if(testBtn) testBtn.addEventListener('click', showTestDialog);
+    if(gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
 
-    function hideModal() {
-        modalOverlay.classList.add('hidden');
-    }
-
-    async function applyChanges(filePath, newContent) {
+    // --- GENERIC HELPERS ---
+    async function applyChanges(filePath, newContent, panelToClose) {
         try {
             const response = await fetch('/api/apply-changes', {
                 method: 'POST',
@@ -115,18 +165,67 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ filePath, newContent }),
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            hideModal();
+            closeTab(panelToClose.dataset.tabId);
             alert(`Changes applied successfully to ${filePath}`);
         } catch (error) {
-            modalContent.textContent = `Error applying changes: ${error.message}`;
+            panelToClose.innerHTML = `Error applying changes: ${error.message}`;
+        }
+    }
+
+    function renderFileTree(node, onFileSelect) {
+        const li = document.createElement('li');
+        const itemSpan = document.createElement('span');
+        itemSpan.className = 'tree-item';
+        itemSpan.textContent = node.name;
+        li.appendChild(itemSpan);
+
+        if (node.type === 'folder') {
+            li.className = 'tree-folder collapsed';
+            itemSpan.onclick = () => li.classList.toggle('collapsed');
+            
+            const childrenUl = document.createElement('ul');
+            childrenUl.className = 'file-tree';
+            if (node.children) {
+                node.children.forEach(child => {
+                    childrenUl.appendChild(renderFileTree(child, onFileSelect));
+                });
+            }
+            li.appendChild(childrenUl);
+        } else {
+            li.className = 'tree-file';
+            li.onclick = () => onFileSelect(node.path);
+        }
+        return li;
+    }
+
+    async function showGenericFileDialog(title, onFileSelect) {
+        const panel = createTab(title);
+        panel.innerHTML = 'Loading files...';
+        try {
+            const response = await fetch('/api/file-tree');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const treeData = await response.json();
+            
+            const treeRoot = document.createElement('ul');
+            treeRoot.className = 'file-tree';
+            if (treeData.children) {
+                treeData.children.forEach(node => {
+                    treeRoot.appendChild(renderFileTree(node, (filePath) => onFileSelect(filePath, panel)));
+                });
+            }
+            
+            panel.innerHTML = `<h3>${title}</h3>`;
+            panel.appendChild(treeRoot);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
 
     // --- ACTION WORKFLOWS ---
-
     function showAgentDialog() {
         const task = prompt("What task would you like the AI agent to perform?");
         if (task && task.trim()) {
+            switchToTab('home');
             chatWindow.innerHTML = '';
             socket.send(JSON.stringify({ type: 'agent-task', task }));
             const userMessage = createMessageElement('user');
@@ -135,34 +234,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function showGenericFileDialog(title, onFileSelect) {
-        showModal(title);
-        modalContent.textContent = 'Loading files...';
-        try {
-            const response = await fetch('/api/files');
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const files = await response.json();
-            const fileList = document.createElement('ul');
-            files.forEach(file => {
-                const li = document.createElement('li');
-                li.textContent = file;
-                li.onclick = () => onFileSelect(file);
-                fileList.appendChild(li);
-            });
-            modalContent.innerHTML = '';
-            modalContent.appendChild(fileList);
-        } catch (error) {
-            modalContent.textContent = `Error loading files: ${error.message}`;
-        }
-    }
-
-    // --- Add Docs ---
     function showAddDocsDialog() {
-        showGenericFileDialog('Add Documentation: Select a File', onFileSelectForDocs);
+        showGenericFileDialog('Add Docs: Select a File', onFileSelectForDocs);
     }
-    async function onFileSelectForDocs(filePath) {
-        modalTitle.textContent = 'Generating Documentation...';
-        modalContent.textContent = 'Please wait, the AI is working...';
+    async function onFileSelectForDocs(filePath, panel) {
+        panel.innerHTML = '<h3>Generating Documentation...</h3>';
         try {
             const response = await fetch('/api/add-docs', {
                 method: 'POST',
@@ -171,35 +247,29 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { patch, newContent } = await response.json();
-            modalTitle.textContent = `Proposed Changes for ${filePath}`;
-            modalContent.innerHTML = `<pre>${patch}</pre>`;
+            displayDiff(panel, patch, `Docs: ${filePath.split('/').pop().split('\\').pop()}`);
             
+            const actions = document.createElement('div');
             const applyBtn = document.createElement('button');
             applyBtn.textContent = 'Apply Changes';
-            applyBtn.onclick = () => applyChanges(filePath, newContent);
-            
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.onclick = hideModal;
-
-            modalActions.innerHTML = '';
-            modalActions.appendChild(cancelBtn);
-            modalActions.appendChild(applyBtn);
-        } catch (error) {
-            modalContent.textContent = `Error generating docs: ${error.message}`;
+            applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
+            actions.appendChild(applyBtn);
+            panel.appendChild(actions);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
 
-    // --- Refactor File ---
     function showRefactorDialog() {
-        showGenericFileDialog('Refactor File: Select a File', onFileSelectForRefactor);
+        showGenericFileDialog('Refactor: Select a File', onFileSelectForRefactor);
     }
-    async function onFileSelectForRefactor(filePath) {
-        const promptText = prompt(`Enter your refactoring instructions for ${filePath}:`);
-        if (!promptText || !promptText.trim()) return;
-
-        modalTitle.textContent = 'Refactoring File...';
-        modalContent.textContent = 'Please wait, the AI is working...';
+    async function onFileSelectForRefactor(filePath, panel) {
+        const promptText = prompt(`Enter refactoring instructions for ${filePath}:`);
+        if (!promptText || !promptText.trim()) {
+            closeTab(panel.dataset.tabId);
+            return;
+        }
+        panel.innerHTML = '<h3>Refactoring file...</h3>';
         try {
             const response = await fetch('/api/refactor', {
                 method: 'POST',
@@ -208,33 +278,29 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { patch, newContent } = await response.json();
-            modalTitle.textContent = `Proposed Refactor for ${filePath}`;
-            modalContent.innerHTML = `<pre>${patch}</pre>`;
-            
+            displayDiff(panel, patch, `Refactor: ${filePath.split('/').pop().split('\\').pop()}`);
+
+            const actions = document.createElement('div');
             const applyBtn = document.createElement('button');
             applyBtn.textContent = 'Apply Changes';
-            applyBtn.onclick = () => applyChanges(filePath, newContent);
-            const cancelBtn = document.createElement('button');
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.onclick = hideModal;
-            modalActions.innerHTML = '';
-            modalActions.appendChild(cancelBtn);
-            modalActions.appendChild(applyBtn);
-        } catch (error) {
-            modalContent.textContent = `Error refactoring file: ${error.message}`;
+            applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
+            actions.appendChild(applyBtn);
+            panel.appendChild(actions);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
-
-    // --- Generate Test ---
+    
     function showTestDialog() {
         showGenericFileDialog('Generate Test: Select a File', onFileSelectForTest);
     }
-    async function onFileSelectForTest(filePath) {
+    async function onFileSelectForTest(filePath, panel) {
         const symbol = prompt(`Enter the function/class name to test in ${filePath}:`);
-        if (!symbol || !symbol.trim()) return;
-
-        modalTitle.textContent = 'Generating Test...';
-        modalContent.textContent = 'Please wait, the AI is working...';
+        if (!symbol || !symbol.trim()) {
+            closeTab(panel.dataset.tabId);
+return;
+        }
+        panel.innerHTML = '<h3>Generating Test...</h3>';
         try {
             const response = await fetch('/api/test', {
                 method: 'POST',
@@ -243,55 +309,141 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { newContent } = await response.json();
-            const defaultPath = filePath.replace('.ts', '.test.ts');
-            const outputPath = prompt(`Generated test for "${symbol}".\nEnter path to save file:`, defaultPath);
-            if (!outputPath) return;
             
-            await applyChanges(outputPath, newContent); // applyChanges also works for new files
-        } catch (error) {
-            modalContent.textContent = `Error generating test: ${error.message}`;
+            document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = `Test: ${symbol}`;
+            panel.innerHTML = `<h3>Generated Test for ${symbol}</h3><pre><code>${newContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
+
+            const actions = document.createElement('div');
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save to File';
+            saveBtn.onclick = () => {
+                const defaultPath = filePath.replace('.ts', '.test.ts');
+                const outputPath = prompt(`Enter path to save test file:`, defaultPath);
+                if(outputPath) applyChanges(outputPath, newContent, panel);
+            };
+            actions.appendChild(saveBtn);
+            panel.appendChild(actions);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
 
-    // --- Git Diff ---
     async function showGitDiffDialog() {
-        showModal('Analyze Commits: Select Start Commit (Older)');
-        modalContent.textContent = 'Loading commit history...';
+        const panel = createTab('Analyze Commits');
+        panel.innerHTML = '<h3>Loading commit history...</h3>';
         try {
             const response = await fetch('/api/commits');
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const commits = await response.json();
             
+            if (commits.length === 0) {
+                panel.innerHTML = '<h3>No commits found in this repository.</h3>';
+                return;
+            }
+
             const commitList = document.createElement('ul');
             commits.forEach(commitLine => {
                 const [hash, author, date, msg] = commitLine.split('|');
                 const li = document.createElement('li');
                 li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
-                li.onclick = () => onCommitSelect_Start(hash, commits);
+                // Store the hash in a data attribute instead of an inline onclick
+                li.dataset.hash = hash;
                 commitList.appendChild(li);
             });
-            modalContent.innerHTML = '';
-            modalContent.appendChild(commitList);
-        } catch (error) {
-            modalContent.textContent = `Error loading commits: ${error.message}`;
+            panel.innerHTML = '<h3>Select the START commit (older):</h3>';
+            panel.appendChild(commitList);
+
+            // After rendering, attach the click handlers
+            panel.querySelectorAll('li').forEach(li => {
+                li.onclick = () => onCommitSelect_Start(li.dataset.hash, commits, panel);
+            });
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
-    function onCommitSelect_Start(startCommit, commits) {
-        modalTitle.textContent = 'Analyze Commits: Select End Commit (Newer)';
+
+    function onCommitSelect_Start(startCommit, commits, panel) {
+        panel.innerHTML = '<h3>Select the END commit (newer):</h3>';
         const commitList = document.createElement('ul');
         commits.forEach(commitLine => {
             const [hash, author, date, msg] = commitLine.split('|');
             const li = document.createElement('li');
             li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
-            li.onclick = () => onCommitSelect_End(startCommit, hash);
+            // Store the hash in a data attribute
+            li.dataset.hash = hash;
             commitList.appendChild(li);
         });
-        modalContent.innerHTML = '';
-        modalContent.appendChild(commitList);
+        panel.appendChild(commitList);
+
+        // After rendering, attach the new click handlers
+        panel.querySelectorAll('li').forEach(li => {
+            li.onclick = () => onCommitSelect_End(startCommit, li.dataset.hash, panel);
+        });
     }
-    async function onCommitSelect_End(startCommit, endCommit) {
-        modalTitle.textContent = 'Generating Diff...';
-        modalContent.textContent = 'Please wait, generating the diff between commits...';
+    
+    async function onCommitSelect_End(startCommit, endCommit, panel) {
+        panel.innerHTML = '<h3>Generating Diff and AI Analysis...</h3>';
+        try {
+            const response = await fetch('/api/diff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startCommit, endCommit }),
+            });
+
+            // --- NEW DEBUGGING LOGS ---
+            console.log('--- DEBUG: Raw response from server ---', response);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('--- DEBUG: Server returned an error ---', errorText);
+                throw new Error(`Server error: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            console.log('--- DEBUG: Parsed JSON data from server ---', data);
+            
+            const { patch, analysis } = data;
+            console.log('--- DEBUG: Value of analysis variable ---', analysis);
+            console.log('--- DEBUG: Type of analysis variable ---', typeof analysis);
+
+            const analysisElement = document.createElement('div');
+            analysisElement.className = 'ai-analysis';
+            
+            const analysisHtml = (typeof analysis === 'string' && analysis) ? analysis.replace(/\n/g, '<br>') : 'No analysis provided.';
+            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysisHtml}</p>`;
+            
+            displayDiff(panel, patch, `Diff: ${startCommit.substring(0,7)}..${endCommit.substring(0,7)}`);
+            
+            panel.prepend(analysisElement);
+
+        } catch (e) {
+            console.error('--- DEBUG: Caught an error in onCommitSelect_End ---', e);
+            panel.innerHTML = `Error: ${e.message}`;
+        }
+    }
+
+    function displayDiff(panel, patch, title) {
+        document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = title;
+        
+        const diffJson = Diff2Html.parse(patch);
+        const diffHtml = Diff2Html.html(diffJson, {
+            drawFileList: false,
+            outputFormat: 'side-by-side',
+            matching: 'lines',
+            colorScheme: 'dark'
+        });
+
+        // This prevents an empty diff box from showing if there are no changes
+        if (!diffHtml) {
+             panel.innerHTML = `<h3>${title}</h3><p>No changes detected.</p>`;
+             return;
+        }
+
+        panel.innerHTML = `<h3>${title}</h3>` + diffHtml;
+    }
+
+    async function onCommitSelect_End(startCommit, endCommit, panel) {
+        panel.innerHTML = '<h3>Generating Diff and AI Analysis...</h3>';
         try {
             const response = await fetch('/api/diff', {
                 method: 'POST',
@@ -299,17 +451,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ startCommit, endCommit }),
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const { patch } = await response.json();
-            modalTitle.textContent = `Changes between ${startCommit.substring(0,7)} and ${endCommit.substring(0,7)}`;
-            modalContent.innerHTML = `<pre>${patch}</pre>`;
             
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = 'Close';
-            closeBtn.onclick = hideModal;
-            modalActions.innerHTML = '';
-            modalActions.appendChild(closeBtn);
-        } catch (error) {
-            modalContent.textContent = `Error generating diff: ${error.message}`;
+            // Get both the patch and the analysis from the response
+            const { patch, analysis } = await response.json();
+            
+            // --- NEW: Display the AI analysis ---
+            const analysisElement = document.createElement('div');
+            analysisElement.className = 'ai-analysis';
+            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysis.replace(/\n/g, '<br>')}</p>`;
+            // ------------------------------------
+
+            // Display the diff using the existing helper
+            displayDiff(panel, patch, `Diff: ${startCommit.substring(0,7)}..${endCommit.substring(0,7)}`);
+            
+            // Prepend the analysis so it appears above the diff
+            panel.prepend(analysisElement);
+
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
     }
 });

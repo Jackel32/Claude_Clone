@@ -16,25 +16,24 @@
         <button id="git-diff-btn">Analyze Git Commits</button>
     </div>
 
-    <div id="chat-container">
-        <div id="chat-window">
-            <div class="message assistant">
-                <p>Welcome to the Kinch Code AI Assistant! I am ready to help you with your code.</p>
+    <div id="main-content">
+        <div id="tab-bar">
             </div>
-        </div>
-        <form id="chat-form">
-            <input type="text" id="message-input" placeholder="Ask about your code..." autocomplete="off" required>
-            <button type="submit">Send</button>
-        </form>
+        <div id="tab-panels">
+            <div class="tab-panel active" data-tab-id="home">
+                <div id="chat-window">
+                    <div class="message assistant">
+                        <p>Welcome to the Kinch Code AI Assistant!</p>
+                    </div>
+                </div>
+                <form id="chat-form">
+                    <input type="text" id="message-input" placeholder="Ask about your code..." autocomplete="off" required>
+                    <button type="submit">Send</button>
+                </form>
+            </div>
+            </div>
     </div>
-
-    <div id="modal-overlay" class="hidden">
-        <div id="modal">
-            <h3 id="modal-title"></h3>
-            <div id="modal-content"></div>
-            <div id="modal-actions"></div>
-        </div>
-    </div>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
