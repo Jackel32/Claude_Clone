@@ -1,0 +1,14 @@
+# Git and Node dependencies
+.git
+.gitignore
+node_modules
+
+# Compiled output (we build this inside the container)
+dist
+
+# Local user config and cache
+.claude-code
+
+# Logs and other local files
+*.log
+README.md

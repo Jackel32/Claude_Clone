@@ -4,3 +4,4 @@
  */
 
 declare module 'inquirer-fuzzy-path';
+declare module 'diff';

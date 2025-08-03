@@ -34,7 +34,7 @@ export async function confirmAndApplyChanges(filePath: string, originalContent: 
   
   const changes = diff.createPatch(filePath, originalContent, newContent, '', '');
   
-  changes.split('\n').forEach(line => {
+  changes.split('\n').forEach((line: string) => {
     if (line.startsWith('+') && !line.startsWith('+++')) {
       console.log('\x1b[32m%s\x1b[0m', line); // Green
     } else if (line.startsWith('-') && !line.startsWith('---')) {

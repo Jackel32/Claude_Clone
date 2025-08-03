@@ -9,6 +9,14 @@ import { AIProvider  } from './ai/providers/interface.js';
 import { Logger } from 'pino';
 
 /**
+ * Defines the structure for a single message in a conversation.
+ */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
  * AppContext holds shared services and configuration that are passed
  * to command handlers, facilitating dependency injection.
  */

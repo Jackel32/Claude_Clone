@@ -63,7 +63,7 @@ export async function queryVectorIndex(query: string, client: AIProvider, topK: 
   }
 
   const queryVector = await client.embed(query);
-  const results = await vectorIndex.queryItems(queryVector, query, topK);
+  const results = await vectorIndex.queryItems(queryVector, topK);
 
   if (results.length === 0) {
     return 'No relevant code context found in the vector database.';

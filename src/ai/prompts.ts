@@ -2,11 +2,7 @@
  * @file src/ai/prompts.ts
  * @description Functions for constructing AI prompts.
  */
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+import { ChatMessage } from '../types.js'; // Import from the new location
 
 /**
  * Constructs a structured chat prompt with conversation history.

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kinch Code AI Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="sidebar">
+        <h2>Actions</h2>
+        <button id="add-docs-btn">Add Docs</button>
+    </div>
+
+    <div id="chat-container">
+        <div id="chat-window">
+            <div class="message assistant">
+                <p>Welcome to the Kinch Code AI Assistant! I am ready to help you with your code.</p>
+            </div>
+        </div>
+        <form id="chat-form">
+            <input type="text" id="message-input" placeholder="Ask about your code..." autocomplete="off" required>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+    
+    <div id="modal-overlay" class="hidden">
+        <div id="modal">
+            <h3 id="modal-title"></h3>
+            <div id="modal-content"></div>
+            <div id="modal-actions"></div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
