@@ -131,3 +131,87 @@ ${symbolContent}
 
 ${framework} test file:`;
 }
+
+/**
+ * Defines the structure for a single step in an AI-generated plan.
+ */
+export interface PlanStep {
+  operation: 'writeFile' | 'executeCommand' | 'readFile' | 'askUser';
+  path?: string;
+  content?: string;
+  command?: string;
+  question?: string;
+  reasoning: string;
+}
+
+/**
+ * Constructs a prompt that asks the AI to create a step-by-step plan.
+ * @param userTask The high-level task from the user.
+ * @param context Relevant code context for the task.
+ * @returns The formatted prompt string.
+ */
+export function constructPlanPrompt(userTask: string, context: string): string {
+  return `You are an expert AI agent. Your goal is to achieve the user's task by creating a step-by-step plan.
+Analyze the user's request and the provided code context.
+Generate a plan as a JSON array of objects. Each object must have a "reasoning" property explaining the step.
+You cannot ask for user input in the middle of a plan; all information must be inferred from the user's initial request.
+
+The available operations are:
+- "writeFile": Writes or overwrites content to a file. Requires "path" and "content" properties.
+- "executeCommand": Executes a shell command. Requires a "command" property.
+- "readFile": Reads a file to get information for a subsequent step. Requires a "path" property.
+
+Your response MUST be only the raw JSON array.
+
+<CODE CONTEXT>
+${context}
+</CODE CONTEXT>
+
+User Task: "${userTask}"
+
+JSON Plan:`;
+}
+
+/**
+ * Constructs a prompt for a ReAct-style agent.
+ * @param userTask The original high-level task.
+ * @param history A string representing the history of actions and observations.
+ * @returns The formatted prompt string.
+ */
+export function constructReActPrompt(userTask: string, history: string, initialContext: string): string {
+  // The new, more detailed prompt with a one-shot example
+  return `You are an expert AI agent. Your goal is to achieve the user's task by reasoning and taking one action at a time.
+You have access to the following tools:
+- "writeFile": Writes/overwrites a file. Args: "path", "content".
+- "executeCommand": Executes a shell command. Args: "command".
+- "readFile": Reads a file to gather information. Args: "path".
+- "finish": Call this when the task is complete. Args: "summary".
+
+On each turn, you must respond with a JSON object containing your "thought" process and the next "action" you will take.
+
+---
+## Example ##
+User Task: "Read the main entry point file."
+Your JSON response:
+{
+  "thought": "The user wants me to read the main entry point. Based on the initial context, I see a 'package.json' which likely defines the entry point. I should read that file first to be sure.",
+  "action": {
+    "tool": "readFile",
+    "path": "package.json"
+  }
+}
+---
+
+<INITIAL CONTEXT>
+Here is a list of files in the current project:
+${initialContext}
+</INITIAL CONTEXT>
+
+<TASK HISTORY>
+${history}
+</TASK HISTORY>
+
+User Task: "${userTask}"
+
+Your JSON response:`;
+}

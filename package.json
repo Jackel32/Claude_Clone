@@ -10,8 +10,9 @@
   "scripts": {
     "clean": "rimraf ./dist",
     "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node dist/index.js",
     "start:web": "node dist/server.js",
+    "cli": "node dist/cli.js",
     "dev": "ts-node src/app.ts"
   },
   "keywords": [

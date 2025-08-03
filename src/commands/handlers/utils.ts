@@ -96,3 +96,44 @@ export async function promptForFile(message: string, context: AppContext): Promi
 
   return filePath;
 }
+
+/**
+ * Finds and extracts a JSON object or array from a larger string.
+ * Handles markdown code blocks and other leading/trailing text.
+ * @param {string} rawResponse - The raw response from the AI.
+ * @returns {string} The extracted JSON string.
+ */
+export function extractJson(rawResponse: string): string {
+    // First, try to find a markdown block
+    const markdownMatch = rawResponse.match(/```(?:json)?\n([\s\S]+?)\n```/);
+    if (markdownMatch && markdownMatch[1]) {
+        return markdownMatch[1].trim();
+    }
+
+    // If no markdown, find the first '{' or '[' and the last '}' or ']'
+    const firstBrace = rawResponse.indexOf('{');
+    const firstBracket = rawResponse.indexOf('[');
+    let start = -1;
+
+    if (firstBrace === -1) {
+        start = firstBracket;
+    } else if (firstBracket === -1) {
+        start = firstBrace;
+    } else {
+        start = Math.min(firstBrace, firstBracket);
+    }
+
+    if (start === -1) {
+        throw new Error("No JSON object or array found in the AI's response.");
+    }
+
+    const lastBrace = rawResponse.lastIndexOf('}');
+    const lastBracket = rawResponse.lastIndexOf(']');
+    const end = Math.max(lastBrace, lastBracket);
+
+    if (end === -1 || end < start) {
+        throw new Error("Valid JSON object or array could not be extracted from the AI's response.");
+    }
+    
+    return rawResponse.substring(start, end + 1).trim();
+}

@@ -14,6 +14,8 @@ import { constructChatPrompt } from './ai/index.js';
 import { runAddDocs } from './core/add-docs-core.js';
 import { scanProject } from './codebase/index.js';
 import { getRecentCommits, getDiffBetweenCommits } from './fileops/index.js';
+import { runRefactor } from './core/refactor-core.js';
+import { runTestGeneration } from './core/test-core.js';
 import * as diff from 'diff';
 
 const PORT = process.env.PORT || 3000;
@@ -88,6 +90,30 @@ async function main() {
             // For now, we'll just send the raw diff. We could also ask the AI to summarize it.
             const patch = diff.createPatch('commit.diff', '', diffContent);
             res.json({ patch });
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to run the "refactor" command
+    app.post('/api/refactor', async (req, res) => {
+        try {
+            const { filePath, prompt } = req.body;
+            const originalContent = await fs.readFile(filePath, 'utf-8');
+            const newContent = await runRefactor(filePath, prompt, { ...appContext, args: {} });
+            const patch = diff.createPatch(filePath, originalContent, newContent);
+            res.json({ patch, newContent });
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to run the "test" command
+    app.post('/api/test', async (req, res) => {
+        try {
+            const { filePath, symbol, framework } = req.body;
+            const newContent = await runTestGeneration(filePath, symbol, framework, { ...appContext, args: {} });
+            res.json({ newContent });
         } catch (error) {
             res.status(500).json({ error: (error as Error).message });
         }

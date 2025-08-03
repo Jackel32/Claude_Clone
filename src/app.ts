@@ -3,6 +3,7 @@
  * @description The main interactive menu loop for the application.
  */
 
+import inquirer from 'inquirer';
 import { getProfile } from './config/index.js';
 import { getApiKey } from './auth/index.js';
 import { createAIProvider } from './ai/provider-factory.js';
@@ -17,9 +18,9 @@ import {
   handleRefactorCommand,
   handleAddDocsCommand,
   handleTestCommand,
-  promptForFile 
+  handleTaskCommand,
+  promptForFile
 } from './commands/handlers/index.js';
-import inquirer from 'inquirer';
 
 /**
  * The main application loop that presents the interactive menu.
@@ -47,6 +48,8 @@ export async function startMainMenu(): Promise<void> {
         name: 'choice',
         message: 'What would you like to do?',
         choices: [
+          'Execute a Task (AI Agent Mode)',
+          new inquirer.Separator(),
           'Chat with the codebase',
           'Update codebase index',
           'Analyze Git commits (interactive)',
@@ -63,6 +66,10 @@ export async function startMainMenu(): Promise<void> {
     ]);
 
     switch (choice) {
+      case 'Execute a Task (AI Agent Mode)':
+        await handleTaskCommand({ ...baseContext, args: {} });
+        break;
+        
       case 'Chat with the codebase':
         await handleChatCommand({ ...baseContext, args: {} });
         break;
