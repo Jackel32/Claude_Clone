@@ -148,4 +148,74 @@ document.addEventListener('DOMContentLoaded', () => {
             modalContent.textContent = `Error applying changes: ${error.message}`;
         }
     }
+
+    const gitDiffBtn = document.getElementById('git-diff-btn');
+    if (gitDiffBtn) {
+        gitDiffBtn.addEventListener('click', showGitDiffDialog);
+    }
+
+    async function showGitDiffDialog() {
+        showModal('Analyze Commits: Select Start Commit (Older)');
+        modalContent.textContent = 'Loading commit history...';
+
+        try {
+            const response = await fetch('/api/commits');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const commits = await response.json();
+            
+            const commitList = document.createElement('ul');
+            commits.forEach(commitLine => {
+                const [hash, author, date, msg] = commitLine.split('|');
+                const li = document.createElement('li');
+                li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
+                li.onclick = () => onCommitSelect_Start(hash, commits);
+                commitList.appendChild(li);
+            });
+            modalContent.innerHTML = '';
+            modalContent.appendChild(commitList);
+        } catch (error) {
+            modalContent.textContent = `Error loading commits: ${error.message}`;
+        }
+    }
+
+    function onCommitSelect_Start(startCommit, commits) {
+        modalTitle.textContent = 'Analyze Commits: Select End Commit (Newer)';
+        const commitList = document.createElement('ul');
+        commits.forEach(commitLine => {
+            const [hash, author, date, msg] = commitLine.split('|');
+            const li = document.createElement('li');
+            li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
+            li.onclick = () => onCommitSelect_End(startCommit, hash);
+            commitList.appendChild(li);
+        });
+        modalContent.innerHTML = '';
+        modalContent.appendChild(commitList);
+    }
+
+    async function onCommitSelect_End(startCommit, endCommit) {
+        modalTitle.textContent = 'Generating Diff...';
+        modalContent.textContent = 'Please wait, generating the diff between commits...';
+        
+        try {
+            const response = await fetch('/api/diff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startCommit, endCommit }),
+            });
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const { patch } = await response.json();
+
+            modalTitle.textContent = `Changes between ${startCommit.substring(0,7)} and ${endCommit.substring(0,7)}`;
+            modalContent.innerHTML = `<pre>${patch}</pre>`;
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Close';
+            closeBtn.onclick = hideModal;
+
+            modalActions.innerHTML = '';
+            modalActions.appendChild(closeBtn);
+        } catch (error) {
+            modalContent.textContent = `Error generating diff: ${error.message}`;
+        }
+    }
 });

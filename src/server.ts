@@ -13,6 +13,7 @@ import { getChatContext } from './core/chat-core.js';
 import { constructChatPrompt } from './ai/index.js';
 import { runAddDocs } from './core/add-docs-core.js';
 import { scanProject } from './codebase/index.js';
+import { getRecentCommits, getDiffBetweenCommits } from './fileops/index.js';
 import * as diff from 'diff';
 
 const PORT = process.env.PORT || 3000;
@@ -63,6 +64,30 @@ async function main() {
             const { filePath, newContent } = req.body;
             await fs.writeFile(filePath, newContent, 'utf-8');
             res.json({ success: true, message: `File ${filePath} updated.` });
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to get the list of recent git commits
+    app.get('/api/commits', async (req, res) => {
+        try {
+            const commits = await getRecentCommits();
+            res.json(commits);
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to get a diff between two commits
+    app.post('/api/diff', async (req, res) => {
+        try {
+            const { startCommit, endCommit } = req.body;
+            const diffContent = await getDiffBetweenCommits(startCommit, endCommit);
+            
+            // For now, we'll just send the raw diff. We could also ask the AI to summarize it.
+            const patch = diff.createPatch('commit.diff', '', diffContent);
+            res.json({ patch });
         } catch (error) {
             res.status(500).json({ error: (error as Error).message });
         }
