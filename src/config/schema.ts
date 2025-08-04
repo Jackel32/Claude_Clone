@@ -22,6 +22,14 @@ export interface Profile {
   };
 }
 
+export interface LanguageConfig {
+  extensions: string[];
+  testNameConvention: {
+    suffix?: string; // e.g., ".test.ts"
+    prefix?: string; // e.g., "test_"
+  };
+}
+
 /**
  * Represents the main configuration structure.
  */
@@ -31,5 +39,11 @@ export interface Config {
   /** A map of profile names to their specific settings. */
   profiles: {
     [key: string]: Profile;
+  };
+  /**
+   * A map of language names to their specific configurations.
+   */
+  languages: {
+    [languageName: string]: LanguageConfig;
   };
 }

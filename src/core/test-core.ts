@@ -3,11 +3,10 @@
  * @description Core logic for the test generation feature.
  */
 
-import { getSymbolContextWithDependencies } from '../codebase/index.js';
+import { getSymbolContent } from '../codebase/index.js';
 import { constructTestPrompt } from '../ai/index.js';
-import { extractCode } from '../commands/handlers/utils.js';
+import { extractCode } from '../commands/handlers/index.js';
 import { AppContext } from '../types.js';
-import * as path from 'path';
 
 /**
  * Generates a unit test for a specific symbol in a file.
@@ -19,11 +18,12 @@ import * as path from 'path';
  */
 export async function runTestGeneration(filePath: string, symbol: string, framework: string, context: AppContext): Promise<string> {
     const { logger, aiProvider } = context;
-    logger.info(`🔎 Finding context for symbol "${symbol}" in ${filePath}...`);
-    const symbolContext = await getSymbolContextWithDependencies(symbol, path.dirname(filePath));
+    logger.info(`🔎 Finding content for symbol "${symbol}" in ${filePath}...`);
+    // FIX: Call the new getSymbolContent function
+    const symbolContext = await getSymbolContent(filePath, symbol);
 
     if (!symbolContext) {
-        throw new Error(`Could not find symbol "${symbol}" in the project.`);
+        throw new Error(`Could not find symbol "${symbol}" in file ${filePath}.`);
     }
     
     logger.info(`🤖 Generating ${framework} test for "${symbol}"...`);

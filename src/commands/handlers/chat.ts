@@ -4,16 +4,10 @@
  */
 
 import * as readline from 'readline';
-import { queryVectorIndex, getSymbolContextWithDependencies } from '../../codebase/index.js';
-import { constructChatPrompt, processStream } from '../../ai/index.js';
-import { AIProvider } from '../../ai/providers/interface.js';
-import { AppContext } from '../../types.js';
+import { queryVectorIndex } from '../../codebase/index.js';
+import { constructChatPrompt, AIProvider, processStream } from '../../ai/index.js';
+import { AppContext, ChatMessage } from '../../types.js';
 import ora from 'ora';
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
 
 async function classifyQuery(query: string, client: AIProvider): Promise<'CODE' | 'GENERAL'> {
   const prompt = `Is the following user query asking about specific code implementation in their project, or is it a general programming, conceptual, or conversational question? Answer with only the single word 'CODE' or 'GENERAL'.\n\nQuery: "${query}"`;
@@ -30,7 +24,6 @@ async function classifyQuery(query: string, client: AIProvider): Promise<'CODE' 
 export async function handleChatCommand(context: AppContext): Promise<void> {
   const { logger, aiProvider, profile } = context;
 
-  // FIX: Wrap the entire readline interface in a promise
   return new Promise((resolve) => {
     logger.info('Starting chat session... (Type "exit" or press Ctrl+C to quit)');
 
@@ -50,38 +43,16 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
         return;
       }
 
-      const spinner = ora('🧠 Thinking...').start();
+      const spinner = ora('🤔 AI is thinking...').start();
       try {
-        let contextStr = '';
-        const queryType = await classifyQuery(line, aiProvider);
-
-        spinner.text = `Query classified as: ${queryType}`;
-
-        if (queryType === 'CODE') {
-          const symbolMatch = line.match(/(?:explain|what is|tell me about)\s+\`?(\w+)\`?/i);
-          if (symbolMatch && symbolMatch[1]) {
-            const symbol = symbolMatch[1];
-            spinner.text = `Looking for symbol "${symbol}" and its dependencies...`;
-            const definitionContext = await getSymbolContextWithDependencies(symbol, '.');
-            if (definitionContext) {
-              logger.info(`Found context for "${symbol}".`);
-              contextStr = definitionContext;
-            }
-          }
-          if (!contextStr) {
-            spinner.text = 'Performing vector search...';
-            contextStr = await queryVectorIndex(line, aiProvider, topK);
-          }
-        } else {
-          logger.info('Skipping RAG for general query.');
-          contextStr = "No specific code context is relevant for this query.";
-        }
+        // FIX: Simplified to use only vector search for context
+        const contextStr = await queryVectorIndex(line, aiProvider, topK);
         
         conversationHistory.push({ role: 'user', content: line });
         const prompt = constructChatPrompt(conversationHistory, contextStr);
         
         spinner.text = 'Waiting for AI response...';
-        const stream = await aiProvider.invoke(prompt, true); // Swapped to aiProvider
+        const stream = await aiProvider.invoke(prompt, true);
         
         spinner.succeed('🤖 Assistant:');
         const fullResponse = await processStream(stream);
@@ -95,7 +66,6 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
       rl.prompt();
     }).on('close', () => {
       logger.info('Chat session ended.');
-      // Resolve the promise to signal that the command is finished
       resolve(); 
     });
   });

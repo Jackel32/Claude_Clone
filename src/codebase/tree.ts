@@ -9,6 +9,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const ignore = require('ignore');
 import { findGitRoot, isGitRepository, readFile } from '../fileops/index.js';
+import { listSymbolsInFile } from './ast.js';
 
 export interface FileTreeNode {
   name: string;
@@ -74,4 +75,42 @@ export async function buildFileTree(startPath: string): Promise<FileTreeNode> {
 
   await recurse(startPath, rootNode);
   return rootNode;
+}
+
+/**
+ * Builds a hierarchical file tree containing only files with testable symbols.
+ * @param startPath The root path to start scanning from.
+ * @returns A FileTreeNode or null if no testable files are found.
+ */
+export async function buildTestableFileTree(startPath: string): Promise<FileTreeNode | null> {
+    const ig = await getIgnoreFilter(startPath);
+
+    async function recurse(currentPath: string): Promise<FileTreeNode | null> {
+        const stats = await fs.stat(currentPath);
+        const name = path.basename(currentPath);
+        const relativePath = path.relative(startPath, currentPath);
+
+        if (relativePath && ig.ignores(relativePath)) {
+            return null;
+        }
+
+        if (stats.isDirectory()) {
+            const children = (await fs.readdir(currentPath))
+                .map(child => recurse(path.join(currentPath, child)));
+
+            const resolvedChildren = (await Promise.all(children)).filter(c => c !== null) as FileTreeNode[];
+            
+            if (resolvedChildren.length > 0) {
+                return { name, path: currentPath, type: 'folder', children: resolvedChildren };
+            }
+        } else if (stats.isFile() && currentPath.endsWith('.ts')) {
+            const symbols = await listSymbolsInFile(currentPath);
+            if (symbols.length > 0) {
+                return { name, path: currentPath, type: 'file' };
+            }
+        }
+        return null;
+    }
+
+    return recurse(startPath);
 }

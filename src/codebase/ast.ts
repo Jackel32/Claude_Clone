@@ -1,98 +1,120 @@
 /**
  * @file src/codebase/ast.ts
- * @description Provides Abstract Syntax Tree (AST) parsing for deep context retrieval.
+ * @description Provides a universal, multi-language Abstract Syntax Tree (AST) parser using Tree-sitter.
  */
 
-import * as ts from 'typescript';
 import { promises as fs } from 'fs';
-import { scanProject } from './scanner.js';
 import * as path from 'path';
+import Parser from 'tree-sitter';
+import TypeScript from 'tree-sitter-typescript';
+import Python from 'tree-sitter-python';
+import C from 'tree-sitter-c';
+import Cpp from 'tree-sitter-cpp';
+import CSharp from 'tree-sitter-c-sharp';
+// import Java from 'tree-sitter-java';
+// import Ada from 'tree-sitter-ada';
 
-/**
- * Finds the definition of a specific symbol (function, class, etc.) within a single file.
- * This is a helper function for our more advanced context gatherer.
- * @param symbol The name of the symbol to find.
- * @param filePath The absolute path to the file to search in.
- * @returns The source code of the symbol's definition, or null.
- */
-async function findSymbolInFile(symbol: string, filePath: string): Promise<string | null> {
-  const content = await fs.readFile(filePath, 'utf-8');
-  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.ES2020, true);
-  let foundSymbolCode: string | null = null;
+const parser = new Parser();
 
-  function visit(node: ts.Node) {
-    if (foundSymbolCode) return; // Stop searching if found
-    if (
-      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)) &&
-      node.name && node.name.getText(sourceFile) === symbol
-    ) {
-      foundSymbolCode = node.getText(sourceFile);
-      return;
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return foundSymbolCode;
+const languageConfig: Record<string, { language: any, symbolQuery: string }> = {
+    '.ts': {
+        language: TypeScript.typescript,
+        symbolQuery: `
+          [(function_declaration name: (identifier) @symbol.name) @symbol.node]
+          [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]`
+    },
+    '.py': {
+        language: Python,
+        symbolQuery: `
+          [(function_definition name: (identifier) @symbol.name) @symbol.node]
+          [(class_definition name: (identifier) @symbol.name) @symbol.node]`
+    },
+    '.c': {
+        language: C,
+        symbolQuery: `(function_declarator declarator: (identifier) @symbol.name) @symbol.node`
+    },
+    '.cpp': {
+        language: Cpp,
+        symbolQuery: `
+          [(function_declarator declarator: (identifier) @symbol.name) @symbol.node]
+          [(class_specifier name: (type_identifier) @symbol.name) @symbol.node]`
+    },
+    '.cs': {
+        language: CSharp,
+        symbolQuery: `
+          [(method_declaration name: (identifier) @symbol.name) @symbol.node]
+          [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
+    },
+    // '.java': {
+    //     language: Java.java,
+    //     symbolQuery: `
+    //       [(method_declaration name: (identifier) @symbol.name) @symbol.node]
+    //       [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
+    // },
+    // '.ada': {
+    //     language: Ada.ada,
+    //     symbolQuery: `
+    //       [(function_declaration name: (identifier) @symbol.name) @symbol.node]
+    //       [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
+    // }
+};
+
+// Map extensions to their main language config
+languageConfig['.tsx'] = languageConfig['.ts'];
+languageConfig['.js'] = languageConfig['.ts'];
+languageConfig['.jsx'] = languageConfig['.ts'];
+languageConfig['.h'] = languageConfig['.c'];
+languageConfig['.hpp'] = languageConfig['.cpp'];
+
+function getLanguageConfig(filePath: string) {
+    const extension = path.extname(filePath);
+    return languageConfig[extension];
 }
 
 /**
- * Gathers rich, dependency-aware context for a given symbol.
- * It finds the primary symbol's definition and the definitions of any local functions/classes it imports.
- * @param {string} symbol The name of the function or class to find.
- * @param {string} projectRoot The root directory of the project.
- * @returns {Promise<string | null>} A formatted string of all relevant source code, or null.
+ * Lists all functions and classes in a given file, regardless of language.
+ * @param {string} filePath - The absolute path to the source file.
+ * @returns {Promise<string[]>} A list of symbol names found in the file.
  */
-export async function getSymbolContextWithDependencies(symbol: string, projectRoot: string): Promise<string | null> {
-  const allTsFiles = (await scanProject(projectRoot)).filter(f => f.endsWith('.ts'));
-  let primarySymbol: { filePath: string, content: string } | null = null;
+export async function listSymbolsInFile(filePath: string): Promise<string[]> {
+    const config = getLanguageConfig(filePath);
+    if (!config) return [];
+    
+    parser.setLanguage(config.language);
+    const sourceCode = await fs.readFile(filePath, 'utf8');
+    const tree = parser.parse(sourceCode);
+    
+    const query = config.language.query(config.symbolQuery);
+    const matches = query.captures(tree.rootNode);
+    
+    return matches
+        .filter((m: any) => m.name === 'symbol.name')
+        .map((m: any) => m.node.text);
+}
 
-  // First, find the primary symbol definition across all files
-  for (const file of allTsFiles) {
-    const content = await findSymbolInFile(symbol, file);
-    if (content) {
-      primarySymbol = { filePath: file, content };
-      break;
-    }
-  }
+/**
+ * Finds and returns the full source text of a specific symbol in a file.
+ * @param filePath The path to the source file.
+ * @param symbolName The name of the symbol to find.
+ * @returns The source code of the symbol, or null if not found.
+ */export async function getSymbolContent(filePath: string, symbolName: string): Promise<string | null> {
+    const config = getLanguageConfig(filePath);
+    if (!config) return null;
 
-  if (!primarySymbol) {
-    return null; // The primary symbol was not found anywhere
-  }
+    parser.setLanguage(config.language);
+    const sourceCode = await fs.readFile(filePath, 'utf8');
+    const tree = parser.parse(sourceCode);
+    if (!tree) return null;
 
-  let context = `--- Definition for ${symbol} in ${path.relative(projectRoot, primarySymbol.filePath)} ---\n${primarySymbol.content}`;
-  
-  // Now, find its dependencies
-  const sourceFile = ts.createSourceFile(primarySymbol.filePath, primarySymbol.content, ts.ScriptTarget.ES2020, true);
-  const dependencyContext: string[] = [];
+    const query = config.language.query(config.symbolQuery);
+    const matches = query.captures(tree.rootNode);
 
-  const visitImports = (node: ts.Node) => {
-    if (ts.isImportDeclaration(node) && node.moduleSpecifier.getText(sourceFile).includes('./')) {
-      const importPath = node.moduleSpecifier.getText(sourceFile).replace(/['"]/g, '');
-      const absoluteImportPath = path.resolve(path.dirname(primarySymbol!.filePath), importPath) + '.ts';
-      
-      if (node.importClause?.namedBindings && ts.isNamedImports(node.importClause.namedBindings)) {
-        for (const element of node.importClause.namedBindings.elements) {
-          const importedSymbolName = element.name.getText(sourceFile);
-          
-          // Asynchronously find the definition of this imported symbol
-          findSymbolInFile(importedSymbolName, absoluteImportPath).then(dependencyContent => {
-            if (dependencyContent) {
-              dependencyContext.push(`--- Imported Dependency: ${importedSymbolName} from ${path.relative(projectRoot, absoluteImportPath)} ---\n${dependencyContent}`);
+    for (let i = 0; i < matches.length; i++) {
+        if (matches[i].name === 'symbol.name' && matches[i].node.text === symbolName) {
+            if (matches[i + 1] && matches[i + 1].name === 'symbol.node') {
+                return matches[i + 1].node.text;
             }
-          });
         }
-      }
     }
-  };
-
-  ts.forEachChild(sourceFile, visitImports);
-  
-  // A small delay to allow async dependency lookups to complete. A more robust solution might use Promise.all.
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  if (dependencyContext.length > 0) {
-    context += '\n\n' + dependencyContext.join('\n\n');
-  }
-
-  return context;
+    return null;
 }

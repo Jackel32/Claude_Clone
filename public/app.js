@@ -186,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const childrenUl = document.createElement('ul');
             childrenUl.className = 'file-tree';
             if (node.children) {
+                // The recursive call correctly passes the onFileSelect callback down
                 node.children.forEach(child => {
                     childrenUl.appendChild(renderFileTree(child, onFileSelect));
                 });
@@ -193,6 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
             li.appendChild(childrenUl);
         } else {
             li.className = 'tree-file';
+            // The click handler is attached directly to the file item
             li.onclick = () => onFileSelect(node.path);
         }
         return li;
@@ -291,21 +293,78 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    function showTestDialog() {
-        showGenericFileDialog('Generate Test: Select a File', onFileSelectForTest);
-    }
-    async function onFileSelectForTest(filePath, panel) {
-        const symbol = prompt(`Enter the function/class name to test in ${filePath}:`);
-        if (!symbol || !symbol.trim()) {
-            closeTab(panel.dataset.tabId);
-return;
+    async function showTestDialog() {
+        const panel = createTab('Generate Test');
+        panel.innerHTML = 'Finding testable files...';
+        try {
+            const response = await fetch('/api/testable-file-tree');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const treeData = await response.json();
+            
+            if (!treeData || !treeData.children || treeData.children.length === 0) {
+                panel.innerHTML = '<h3>No files with testable functions found.</h3>';
+                return;
+            }
+            
+            const treeRoot = document.createElement('ul');
+            treeRoot.className = 'file-tree';
+            treeData.children.forEach(node => {
+                treeRoot.appendChild(renderFileTree(node, (filePath) => onFileSelectForTest(filePath, panel)));
+            });
+            
+            panel.innerHTML = `<h3>Generate Test: Select a File</h3>`;
+            panel.appendChild(treeRoot);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
-        panel.innerHTML = '<h3>Generating Test...</h3>';
+    }
+
+    // This function now fetches the list of symbols
+    async function onFileSelectForTest(filePath, panel) {
+        panel.innerHTML = '<h3>Loading functions from file...</h3>';
+        try {
+            const response = await fetch('/api/list-symbols', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath }),
+            });
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const symbols = await response.json();
+
+            if (symbols.length === 0) {
+                panel.innerHTML = `<h3>No exportable functions or classes found in ${filePath}.</h3>`;
+                return;
+            }
+
+            const symbolList = document.createElement('ul');
+            symbols.forEach(symbol => {
+                const li = document.createElement('li');
+                li.textContent = symbol;
+                li.onclick = () => onSymbolSelectForTest(filePath, symbol, panel);
+                symbolList.appendChild(li);
+            });
+            
+            panel.innerHTML = `<h3>Select a function or class to test:</h3>`;
+            panel.appendChild(symbolList);
+
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
+        }
+    }
+
+    async function onSymbolSelectForTest(filePath, symbol, panel) {
+        const framework = prompt(`Enter the testing framework for "${symbol}":`, 'jest');
+        if (!framework || !framework.trim()) {
+            closeTab(panel.dataset.tabId);
+            return;
+        }
+
+        panel.innerHTML = `<h3>Generating ${framework} test for "${symbol}"...</h3>`;
         try {
             const response = await fetch('/api/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, symbol, framework: 'jest' }),
+                body: JSON.stringify({ filePath, symbol, framework }),
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { newContent } = await response.json();
@@ -319,7 +378,7 @@ return;
             saveBtn.onclick = () => {
                 const defaultPath = filePath.replace('.ts', '.test.ts');
                 const outputPath = prompt(`Enter path to save test file:`, defaultPath);
-                if(outputPath) applyChanges(outputPath, newContent, panel);
+                if (outputPath) applyChanges(outputPath, newContent, panel);
             };
             actions.appendChild(saveBtn);
             panel.appendChild(actions);

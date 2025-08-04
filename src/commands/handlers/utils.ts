@@ -29,30 +29,17 @@ export function extractCode(rawResponse: string): string {
  */
 export async function confirmAndApplyChanges(filePath: string, originalContent: string, newContent: string, context: AppContext): Promise<void> {
   const { logger } = context;
-  
   logger.info('\n--- Proposed Changes ---');
-  
   const changes = diff.createPatch(filePath, originalContent, newContent, '', '');
-  
   changes.split('\n').forEach((line: string) => {
-    if (line.startsWith('+') && !line.startsWith('+++')) {
-      console.log('\x1b[32m%s\x1b[0m', line); // Green
-    } else if (line.startsWith('-') && !line.startsWith('---')) {
-      console.log('\x1b[31m%s\x1b[0m', line); // Red
-    } else {
-      console.log(line);
-    }
+    if (line.startsWith('+') && !line.startsWith('+++')) console.log('\x1b[32m%s\x1b[0m', line);
+    else if (line.startsWith('-') && !line.startsWith('---')) console.log('\x1b[31m%s\x1b[0m', line);
+    else console.log(line);
   });
-
   logger.info('--- End of Changes ---');
 
   const { apply } = await inquirer.prompt([
-    {
-      type: 'confirm',
-      name: 'apply',
-      message: 'Apply these changes?',
-      default: false,
-    },
+    { type: 'confirm', name: 'apply', message: 'Apply these changes?', default: false },
   ]);
 
   if (apply) {
@@ -64,76 +51,55 @@ export async function confirmAndApplyChanges(filePath: string, originalContent: 
 }
 
 /**
- * Prompts the user to select a file from the project using a fuzzy-searchable list.
+ * Prompts the user to select a file from the project using a standard list.
  * @param message The message to display to the user.
  * @param context The application context.
- * @returns {Promise<string>} The path to the selected file.
+ * @returns {Promise<string | null>} The path to the selected file.
  */
-export async function promptForFile(message: string, context: AppContext): Promise<string> {
+export async function promptForFile(message: string, context: AppContext): Promise<string | null> {
   const { logger } = context;
-  const { default: fuzzy } = await import('inquirer-fuzzy-path');
-  
-  inquirer.registerPrompt('fuzzy-path', fuzzy);
-  
   logger.info('🔍 Scanning for project files (respecting .gitignore)...');
-  // This is the key step: we get the pre-filtered list of files first.
   const files = await scanProject('.');
   files.unshift('.. (Back to Main Menu)');
 
   const { filePath } = await inquirer.prompt([
     {
-      type: 'fuzzy-path',
+      type: 'list',
       name: 'filePath',
       message: message,
-      itemType: 'file',
-      rootPath: '.',
-      suggestOnly: false,
-      depthLimit: 5,
-      // We pass our filtered list to the prompt.
-      paths: files, 
-    } as any,
+      choices: files,
+      pageSize: 20,
+    },
   ]);
 
+  if (filePath === '.. (Back to Main Menu)') {
+    return null;
+  }
   return filePath;
 }
 
 /**
  * Finds and extracts a JSON object or array from a larger string.
- * Handles markdown code blocks and other leading/trailing text.
  * @param {string} rawResponse - The raw response from the AI.
  * @returns {string} The extracted JSON string.
  */
 export function extractJson(rawResponse: string): string {
-    // First, try to find a markdown block
     const markdownMatch = rawResponse.match(/```(?:json)?\n([\s\S]+?)\n```/);
     if (markdownMatch && markdownMatch[1]) {
         return markdownMatch[1].trim();
     }
-
-    // If no markdown, find the first '{' or '[' and the last '}' or ']'
     const firstBrace = rawResponse.indexOf('{');
     const firstBracket = rawResponse.indexOf('[');
     let start = -1;
-
-    if (firstBrace === -1) {
-        start = firstBracket;
-    } else if (firstBracket === -1) {
-        start = firstBrace;
-    } else {
-        start = Math.min(firstBrace, firstBracket);
-    }
-
-    if (start === -1) {
-        throw new Error("No JSON object or array found in the AI's response.");
-    }
+    if (firstBrace === -1) start = firstBracket;
+    else if (firstBracket === -1) start = firstBrace;
+    else start = Math.min(firstBrace, firstBracket);
+    if (start === -1) throw new Error("No JSON object or array found in the AI's response.");
 
     const lastBrace = rawResponse.lastIndexOf('}');
     const lastBracket = rawResponse.lastIndexOf(']');
     const end = Math.max(lastBrace, lastBracket);
-
-    if (end === -1 || end < start) {
-        throw new Error("Valid JSON object or array could not be extracted from the AI's response.");
-    }
+    if (end === -1 || end < start) throw new Error("Valid JSON object or array could not be extracted.");
     
     return rawResponse.substring(start, end + 1).trim();
 }

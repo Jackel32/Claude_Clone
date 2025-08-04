@@ -1,66 +1,48 @@
-# AI-Powered Code Agent
+# Kinch Code - AI-Powered Coding Assistant
 
-This project appears to be a robust, AI-powered code agent designed to assist developers with a wide range of tasks, from code analysis and understanding to generation, refactoring, documentation, and testing. It leverages advanced AI models to provide intelligent automation and insights into codebases.
+Kinch Code is a sophisticated, multi-interface tool designed to be your AI pair programmer. It allows you to interact with, analyze, and modify your codebases through a feature-rich web UI, an interactive command-line menu, and a powerful AI agent.
 
-## Core Functionality
+Built with a modular and extensible architecture, it leverages a local vector database for semantic understanding and an Abstract Syntax Tree (AST) parser for deep, structural code analysis.
 
-The agent's capabilities are extensive, suggesting a comprehensive tool for developer productivity:
+## Features
 
-*   **Intelligent Code Analysis:** Utilizes Abstract Syntax Trees (AST), indexing, scanning, and vectorization to deeply understand code structures, relationships, and semantic meaning. This forms the foundation for many AI-driven features.
-*   **Multi-Provider AI Integration:** Designed with a flexible architecture to integrate with various Large Language Models (LLMs) from providers like Anthropic and Gemini, ensuring adaptability and future-proofing.
-*   **Automated Code Generation & Refactoring:** Capable of generating new code snippets or entire modules, and intelligently refactoring existing code to improve quality, performance, or maintainability.
-*   **Comprehensive Documentation & Explanation:** Can automatically generate documentation for code and provide clear explanations of complex code segments or functionalities.
-*   **Automated Testing & Reporting:** Includes features for generating or assisting with tests, and providing detailed reports on code quality, test coverage, or other metrics.
-*   **Interactive AI Chat:** Allows for natural language interaction with the AI agent to query the codebase, get suggestions, or initiate specific actions.
-*   **File System & VCS Operations:** Seamlessly interacts with the file system for reading/writing and potentially integrates with Version Control Systems (VCS) for more advanced workflows.
-*   **Flexible Interface:** Appears to support both a Command-Line Interface (CLI) for scripting and power users, and potentially a Web-based User Interface (UI) for a more visual and interactive experience.
+### 🖥️ User Interfaces
+* **Web UI:** A full-featured, browser-based interface with a tabbed layout, real-time chat, and interactive workflows for all AI tasks.
+* **Interactive CLI:** A menu-driven command-line interface for a guided, terminal-based experience.
+* **Direct CLI:** A standard command-line interface for scripting and power users (e.g., `kinch-code test <file>`).
 
-## Architecture Overview
+### 🤖 Core AI Capabilities
+* **AI Agent Mode**: Give high-level tasks (e.g., "add ESLint to this project") and the AI will generate, propose, and execute a multi-step plan to accomplish the goal, showing its reasoning in real-time.
+* **Conversational Chat (RAG)**: Have a natural language conversation with your codebase. The assistant uses a vector index (RAG) and AST analysis to provide contextually-aware answers.
+* **Code Generation**: Create new functions, classes, or test files from a simple prompt, with an option to save directly to a file.
+* **Code Refactoring**: Request specific refactors for any file, review a side-by-side diff of the proposed changes, and approve them to be written to disk.
+* **Documentation Generation**: Automatically add JSDoc comments to any file, and review/approve the changes via a diff.
+* **Test Generation**: Select a file and a specific function/class to automatically generate a unit test using a framework of your choice (e.g., Jest, Vitest).
 
-The project is built with a modular and scalable TypeScript architecture, indicating a well-thought-out design:
+### ⚙️ Developer & Workflow Tools
+* **Interactive Git Analysis**: Get an interactive list of recent commits and view a side-by-side diff of the changes between any two points in the history, complete with an AI-generated summary of the changes.
+* **Intelligent File Pickers**: UI features a collapsible file-tree and a pre-filtered list of testable files to make selection fast and intuitive.
+* **Project Reporting**: Generate a high-level summary of the entire project's architecture and purpose.
+* **Persistent Codebase Indexing**: Uses a local vector database to store an index of your code, only re-indexing files that have changed.
 
-*   **`src/ai`:** Manages all AI-related functionalities, including prompt engineering, response parsing, and a `provider-factory` for abstracting different LLM APIs.
-*   **`src/codebase`:** Handles the deep analysis of source code, including AST generation, indexing for quick lookups, and vectorization for semantic search and similarity comparisons.
-*   **`src/commands`:** Defines and executes a wide array of commands (e.g., `add-docs`, `chat`, `refactor`, `test`), acting as the dispatcher for user requests.
-*   **`src/core`:** Contains the core business logic for each major feature, separating concerns from command parsing and AI integration.
-*   **`src/fileops`:** Provides abstractions for file system operations, including reading, writing, and potential version control interactions.
-*   **`src/auth`:** Manages authentication, likely for API keys or user sessions with AI providers.
-*   **`src/config`:** Handles application configuration.
-*   **`src/logger`:** Provides logging capabilities for debugging and monitoring.
-*   **`public`:** Suggests the presence of a web-based frontend (`index.html`, `app.js`, `style.css`), which would interact with a backend server (`src/server.ts`).
-*   **`Dockerfile` & `docker-compose.yml`:** Indicates the application is containerized for easy deployment and portability.
+## Architecture
+* **Stack**: Node.js, TypeScript, Express.js, WebSockets
+* **Module System**: Modern ES Modules (ESM)
+* **AI Providers**: Modular "Strategy" pattern allows for easily adding different AI backends (e.g., Anthropic, OpenAI).
+* **UI**: Decoupled core logic allows for both a command-line interface (`inquirer`) and a web interface (HTML/CSS/JS) to be powered by the same backend.
+* **Persistence**: Uses a local file-based vector database (`vectra`) for RAG.
+* **Containerization**: Fully containerized with a multi-stage `Dockerfile` and managed with `docker-compose`.
 
-## Potential Feature Enhancements
+## How to Run
 
-Given the robust foundation, several powerful enhancements could further extend the agent's capabilities:
+### Docker (Recommended for Web UI)
+1.  Create an `.env` file from the project root (or rename the example).
+2.  Customize the `CODE_TO_ANALYZE_PATH` and `CONFIG_PATH` variables in the `.env` file.
+3.  Run `docker-compose up --build`.
+4.  Open your browser to `http://localhost:3000`.
 
-1.  **Enhanced Context Management:**
-    *   **Long-Term Memory:** Implement a more sophisticated long-term memory system for the AI, allowing it to remember past interactions, project-specific knowledge, and user preferences across sessions. This could involve persistent vector stores or knowledge graphs.
-    *   **Dynamic Context Window:** Intelligently manage the context window sent to LLMs, prioritizing relevant code snippets, documentation, or chat history based on the current task and token limits.
-
-2.  **Advanced Codebase Interaction:**
-    *   **Semantic Search & Q&A:** Allow developers to ask natural language questions about the codebase (e.g., "Where is X feature implemented?", "How does Y function work?") and get precise answers based on indexed code and documentation.
-    *   **Dependency Graph Visualization:** Generate interactive dependency graphs for functions, modules, or packages, helping developers understand complex relationships.
-    *   **Performance Bottleneck Identification:** Integrate with profiling tools or static analysis to suggest potential performance bottlenecks based on code patterns.
-    *   **Security Vulnerability Scanning:** Add handlers for identifying common security vulnerabilities or anti-patterns in the code.
-
-3.  **Deeper VCS Integration:**
-    *   **Automated Pull Request Generation:** Based on refactoring or feature generation, automatically create pull requests with detailed descriptions and suggested reviewers.
-    *   **Smart Code Review Assistant:** Provide AI-driven suggestions during code reviews, identifying potential bugs, style violations, or areas for improvement, and even suggesting fixes.
-    *   **Git Blame Analysis with AI:** Analyze `git blame` output alongside code changes to understand the "why" behind modifications and suggest better ways to handle history.
-
-4.  **Improved User Experience (Web UI & CLI):**
-    *   **Interactive Web UI:** Develop a fully-featured web interface that allows for visual interaction, code editing, real-time AI suggestions, and integrated diff views.
-    *   **CLI Autocompletion & Rich Output:** Enhance the CLI with intelligent autocompletion for commands and arguments, and provide rich, color-coded output for better readability.
-    *   **Customizable Workflows/Playbooks:** Allow users to define custom AI workflows or "playbooks" that chain multiple commands together (e.g., "analyze, refactor, test, document").
-
-5.  **Integration with External Tools:**
-    *   **IDE Extensions:** Develop extensions for popular IDEs (VS Code, IntelliJ) to bring the agent's power directly into the developer's primary workspace.
-    *   **CI/CD Pipeline Integration:** Integrate the agent into CI/CD pipelines for automated code quality checks, documentation updates, or test generation.
-    *   **Issue Tracker Integration:** Connect with issue tracking systems (Jira, GitHub Issues) to automatically create tasks, update statuses, or link AI-generated solutions.
-
-6.  **Learning & Adaptation:**
-    *   **Fine-tuning/RAG on User Code:** Implement mechanisms for the AI to learn from the user's specific codebase, style guides, and project conventions (e.g., via Retrieval Augmented Generation or fine-tuning techniques).
-    *   **Feedback Loop:** Allow users to provide feedback on AI-generated suggestions, helping the model improve over time.
-
-This project represents a powerful step towards an autonomous software development assistant, and these enhancements could solidify its position as an indispensable tool for modern developers.
+### Local Development (CLI)
+1.  Run `npm install`.
+2.  Run `npm run build`.
+3.  **For the interactive menu:** `npm run start`.
+4.  **For direct commands:** `npm run cli -- <command> [options]`.

@@ -3,6 +3,7 @@
  * This is used as a fallback and to create the initial config file.
  */
 
+import { constructPlanPrompt } from '../ai/prompts.js';
 import { Config } from './schema.js';
 
 /**
@@ -23,4 +24,31 @@ export const defaultConfig: Config = {
       },
     },
   },
+  languages: {
+    typescript: {
+      extensions: ['.ts', '.tsx', '.js', '.jsx'],
+      testNameConvention: { suffix: '.test.ts' },
+    },
+    python: {
+      extensions: ['.py'],
+      testNameConvention: { prefix: 'test_' },
+    },
+    csharp: {
+      extensions: ['.cs'],
+      testNameConvention: { suffix: '.Tests.cs' },
+    },
+    java: {
+      extensions: ['.java'],
+      testNameConvention: { suffix: 'Test.java' },
+    },
+    cpp: {
+      extensions: ['.cpp', '.h', '.hpp', '.idl'],
+      testNameConvention: { suffix: 'Test.cpp' },
+    },
+    ada: {
+      extensions: ['.adb', '.ads'],
+      testNameConvention: { suffix: '.adb' },
+    },
+  },
+  // ... configs for C/C++ and Ada
 };

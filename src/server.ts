@@ -19,7 +19,7 @@ import { AppContext, ChatMessage } from './types.js';
 import { constructChatPrompt, constructDiffAnalysisPrompt  } from './ai/index.js';
 
 import { getRecentCommits, getDiffBetweenCommits } from './fileops/index.js';
-import { buildFileTree } from './codebase/index.js';
+import { buildFileTree, listSymbolsInFile, buildTestableFileTree  } from './codebase/index.js';
 
 import { getChatContext } from './core/chat-core.js';
 import { runAddDocs } from './core/add-docs-core.js';
@@ -127,6 +127,31 @@ async function main() {
             await fs.writeFile(filePath, newContent, 'utf-8');
             res.json({ success: true, message: `File ${filePath} updated.` });
         } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to list functions/classes in a file
+    app.post('/api/list-symbols', async (req, res) => {
+        try {
+            const { filePath } = req.body;
+            const symbols = await listSymbolsInFile(filePath);
+            res.json(symbols);
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
+    // Endpoint to get a tree of only files with testable symbols
+    app.get('/api/testable-file-tree', async (req, res) => {
+        try {
+            const tree = await buildTestableFileTree(CODE_ANALYSIS_ROOT);
+            res.json(tree);
+        } catch (error) {
+            // Add this line to print the raw error to the terminal
+            console.error("--- DETAILED ERROR in /api/testable-file-tree ---", error);
+            
+            logger.error(error, `Error in /api/testable-file-tree`);
             res.status(500).json({ error: (error as Error).message });
         }
     });

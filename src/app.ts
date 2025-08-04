@@ -24,6 +24,13 @@ import {
 
 /**
  * The main application loop that presents the interactive menu.
+ *
+ * This function initializes the application context, including user profile, API key,
+ * and AI provider, and then enters a loop to display a main menu to the user.
+ * It handles user choices by invoking various command handlers.
+ *
+ * @async
+ * @returns {Promise<void>} A promise that resolves when the user chooses to exit the application.
  */
 export async function startMainMenu(): Promise<void> {
 
