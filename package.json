@@ -5,7 +5,7 @@
   "description": "A CLI tool to interact with your codebase using a custom AI backend.",
   "main": "dist/index.js",
   "bin": {
-    "kinch-code": "dist/index.js"
+    "kinch-code": "dist/cli.js"
   },
   "scripts": {
     "clean": "rimraf ./dist",
@@ -13,7 +13,8 @@
     "start": "node dist/index.js",
     "start:web": "node dist/server.js",
     "cli": "node dist/cli.js",
-    "dev": "ts-node src/app.ts"
+    "dev": "ts-node src/app.ts",
+    "test": "vitest"
   },
   "keywords": [
     "ai",
@@ -32,8 +33,9 @@
     "ora": "^8.0.1",
     "pino": "^9.2.0",
     "tree-sitter": "^0.21.1",
+    "tree-sitter-ada": "github:briot/tree-sitter-ada",
     "tree-sitter-c": "^0.21.0",
-    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-c-sharp": "^0.20.0",
     "tree-sitter-cpp": "^0.21.0",
     "tree-sitter-python": "^0.21.0",
     "tree-sitter-typescript": "^0.21.1",
@@ -44,15 +46,18 @@
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",
-    "@types/express": "^5.0.3",
-    "@types/inquirer": "^9.0.8",
-    "@types/node": "^20.12.12",
-    "@types/ws": "^8.18.1",
+    "@types/diff": "^5.2.1",
+    "@types/express": "^4.17.21",
+    "@types/inquirer": "^8.2.10",
+    "@types/node": "^20.14.2",
+    "@types/supertest": "^6.0.3",
+    "@types/ws": "^8.5.10",
     "@types/yargs": "^17.0.32",
-    "cpy-cli": "^5.0.0",
-    "pino-pretty": "^13.1.1",
-    "rimraf": "^6.0.1",
-    "ts-node": "^10.9.2"
+    "pino-pretty": "^11.2.1",
+    "rimraf": "^5.0.7",
+    "supertest": "^7.1.4",
+    "ts-node": "^10.9.2",
+    "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=18.0.0"

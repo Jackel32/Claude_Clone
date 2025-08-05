@@ -106,3 +106,15 @@ export async function getDiffBetweenCommits(startHash: string, endHash: string, 
     throw error;
   }
 }
+
+/**
+ * Clones a git repository into a specified local path using a Personal Access Token.
+ * @param repoUrl The HTTPS URL of the repository (e.g., https://github.com/user/repo.git).
+ * @param pat The Personal Access Token for authentication.
+ * @param localPath The local directory to clone the repo into.
+ */
+export async function cloneRepo(repoUrl: string, pat: string, localPath: string): Promise<void> {
+    // Inject the PAT into the URL for authentication
+    const authedUrl = repoUrl.replace('https://', `https://oauth2:${pat}@`);
+    await runGitCommand(['clone', authedUrl, localPath], '.');
+}

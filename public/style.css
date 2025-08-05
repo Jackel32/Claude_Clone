@@ -160,3 +160,34 @@ body {
 .tree-folder.collapsed > .tree-item::before {
     content: '📂 ';
 }
+
+/* Repo Selector Styles */
+#repo-selector-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+#repo-selector {
+    background-color: #252526;
+    padding: 30px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+}
+#repo-selector-overlay.hidden {
+    display: none;
+}
+#app-container.hidden {
+    display: none;
+}
+#repo-list { list-style: none; padding: 0; }
+#repo-list li { padding: 10px; cursor: pointer; border-radius: 4px; }
+#repo-list li:hover { background-color: #0e639c; }
+#clone-form { display: flex; flex-direction: column; gap: 10px; }
+#clone-form input { padding: 8px; background-color: #3c3c3c; border: 1px solid #555; color: #d4d4d4; border-radius: 4px; }
+#clone-form button { padding: 10px; }

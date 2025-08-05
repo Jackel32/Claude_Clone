@@ -6,65 +6,92 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import Parser from 'tree-sitter';
-import TypeScript from 'tree-sitter-typescript';
-import Python from 'tree-sitter-python';
-import C from 'tree-sitter-c';
-import Cpp from 'tree-sitter-cpp';
-import CSharp from 'tree-sitter-c-sharp';
-// import Java from 'tree-sitter-java';
-// import Ada from 'tree-sitter-ada';
+import Ada from 'tree-sitter-ada';
+
+import { createRequire } from 'module';
+import { logger } from '../logger/index.js';
+const require = createRequire(import.meta.url);
+
+const TypeScript = require('tree-sitter-typescript/bindings/node');
+const Python = require('tree-sitter-python/bindings/node');
+const CSharp = require('tree-sitter-c-sharp/bindings/node');
+const C = require('tree-sitter-c/bindings/node');
+const Cpp = require('tree-sitter-cpp/bindings/node'); 
 
 const parser = new Parser();
+const languageConfig: Record<string, { language: any, symbolQuery: string }> = {};
 
-const languageConfig: Record<string, { language: any, symbolQuery: string }> = {
-    '.ts': {
-        language: TypeScript.typescript,
+/**
+ * Initializes the Tree-sitter parser and loads all language grammars and queries.
+ * This should run only once when the application starts up.
+ */
+export async function initializeParser(): Promise<void> {
+        if (Object.keys(languageConfig).length > 0) return; // Already initialized
+
+    logger.info('Initializing Tree-sitter parsers...');
+    
+    // The Parser class itself is imported directly.
+    // The language grammars are loaded via require.
+
+    languageConfig['.ts'] = {
+        language: TypeScript,
         symbolQuery: `
           [(function_declaration name: (identifier) @symbol.name) @symbol.node]
-          [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]`
-    },
-    '.py': {
+          [(lexical_declaration (variable_declarator name: (identifier) @symbol.name value: [(arrow_function) (function)])) @symbol.node]
+          [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]
+          [(interface_declaration name: (type_identifier) @symbol.name) @symbol.node]`
+    };
+    languageConfig['.py'] = {
         language: Python,
         symbolQuery: `
           [(function_definition name: (identifier) @symbol.name) @symbol.node]
           [(class_definition name: (identifier) @symbol.name) @symbol.node]`
-    },
-    '.c': {
+    };
+    languageConfig['.cs'] = {
+        language: CSharp,
+        symbolQuery: `
+        [(method_declaration name: (identifier) @symbol.name) @symbol.node]
+        [(class_declaration name: (identifier) @symbol.name) @symbol.node]
+        [(struct_declaration name: (identifier) @symbol.name) @symbol.node]
+        [(interface_declaration name: (identifier) @symbol.name) @symbol.node]`
+    };
+    languageConfig['.c'] = {
         language: C,
         symbolQuery: `(function_declarator declarator: (identifier) @symbol.name) @symbol.node`
-    },
-    '.cpp': {
+    };
+    languageConfig['.cpp'] = {
         language: Cpp,
         symbolQuery: `
           [(function_declarator declarator: (identifier) @symbol.name) @symbol.node]
-          [(class_specifier name: (type_identifier) @symbol.name) @symbol.node]`
-    },
-    '.cs': {
-        language: CSharp,
+          [(class_specifier name: (type_identifier) @symbol.name) @symbol.node]
+          [(struct_specifier name: (type_identifier) @symbol.name) @symbol.node]`
+    };
+    languageConfig['.ada'] = { 
+        language: Ada,
         symbolQuery: `
-          [(method_declaration name: (identifier) @symbol.name) @symbol.node]
-          [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
-    },
-    // '.java': {
-    //     language: Java.java,
-    //     symbolQuery: `
-    //       [(method_declaration name: (identifier) @symbol.name) @symbol.node]
-    //       [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
-    // },
-    // '.ada': {
-    //     language: Ada.ada,
-    //     symbolQuery: `
-    //       [(function_declaration name: (identifier) @symbol.name) @symbol.node]
-    //       [(class_declaration name: (identifier) @symbol.name) @symbol.node]`
-    // }
-};
+          [(subprogram_body (subprogram_specification "procedure" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
+          [(subprogram_body (subprogram_specification "function" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
+          [(package_body (package_specification "package" "body" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]`
+    };
 
-// Map extensions to their main language config
-languageConfig['.tsx'] = languageConfig['.ts'];
-languageConfig['.js'] = languageConfig['.ts'];
-languageConfig['.jsx'] = languageConfig['.ts'];
-languageConfig['.h'] = languageConfig['.c'];
-languageConfig['.hpp'] = languageConfig['.cpp'];
+    const extensionAliases: Record<string, string[]> = {
+        '.ts': ['.tsx', '.js', '.jsx', '.mjs', '.cjs'],
+        '.py': ['.pyi', '.pyx', '.pyd', '.pyw'],
+        '.cpp': ['.h', '.hpp', '.hxx', '.cxx', '.cc', '.cppm', '.c++', '.h++', '.idl'],
+        '.cs': ['.csx'],
+        '.ada': ['.ads', '.adb']
+    };
+
+    // Populate the languageConfig with aliases
+    for (const primaryExt in extensionAliases) {
+        const aliases = extensionAliases[primaryExt];
+        for (const alias of aliases) {
+            languageConfig[alias] = languageConfig[primaryExt];
+        }
+    }
+
+    logger.info('Tree-sitter parsers initialized for all supported languages.');
+}
 
 function getLanguageConfig(filePath: string) {
     const extension = path.extname(filePath);
@@ -83,8 +110,9 @@ export async function listSymbolsInFile(filePath: string): Promise<string[]> {
     parser.setLanguage(config.language);
     const sourceCode = await fs.readFile(filePath, 'utf8');
     const tree = parser.parse(sourceCode);
+    if (!tree) return [];
     
-    const query = config.language.query(config.symbolQuery);
+    const query = new Parser.Query(config.language, config.symbolQuery);
     const matches = query.captures(tree.rootNode);
     
     return matches
@@ -97,7 +125,8 @@ export async function listSymbolsInFile(filePath: string): Promise<string[]> {
  * @param filePath The path to the source file.
  * @param symbolName The name of the symbol to find.
  * @returns The source code of the symbol, or null if not found.
- */export async function getSymbolContent(filePath: string, symbolName: string): Promise<string | null> {
+ */
+export async function getSymbolContent(filePath: string, symbolName: string): Promise<string | null> {
     const config = getLanguageConfig(filePath);
     if (!config) return null;
 
@@ -106,7 +135,7 @@ export async function listSymbolsInFile(filePath: string): Promise<string[]> {
     const tree = parser.parse(sourceCode);
     if (!tree) return null;
 
-    const query = config.language.query(config.symbolQuery);
+    const query = new Parser.Query(config.language, config.symbolQuery);
     const matches = query.captures(tree.rootNode);
 
     for (let i = 0; i < matches.length; i++) {

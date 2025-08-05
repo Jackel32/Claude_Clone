@@ -3,18 +3,31 @@
  * @description Defines the TypeScript interfaces for the application configuration.
  */
 
+// This interface defines the settings for a single provider
+export interface ProviderConfig {
+  apiKey?: string;
+  generation?: string;
+  embedding?: string;
+  rateLimit?: {
+    requestsPerMinute?: number;
+    tokensPerMinute?: number;
+  };
+}
+
 /**
  * Represents the settings for a single AI profile.
  */
 export interface Profile {
-  /** The API key for the AI service. */
-  apiKey?: string;
-  /** The specific AI model to use (e.g., 'gemini-1.5-flash'). */
-  model?: string;
-  /** The sampling temperature for the AI model (0.0 - 1.0). */
-  temperature?: number;
   /** The provider for the AI model. */
   provider?: string;
+  /** The models used by the AI provider. */
+  providers?: {
+    [providerName: string]: ProviderConfig;
+  };
+  /** The sampling temperature for the AI model (0.0 - 1.0). */
+  temperature?: number;
+  /** The working directory for the AI model. */
+  cwd?: string;
   /** Settings related to Retrieval-Augmented Generation (RAG). */
   rag?: {
     /** The number of top results to retrieve from the vector index. */

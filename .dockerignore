@@ -1,5 +1,6 @@
 # Node dependencies (installed in the container)
 node_modules
+/grammars/*/node_modules
 
 # Compiled output (built in the container)
 dist

@@ -4,6 +4,7 @@
  */
 
 import { promises as fs } from 'fs';
+import * as path from 'path'; // Import the path module
 import { queryVectorIndex } from '../../codebase/index.js';
 import { constructGeneratePrompt } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
@@ -21,11 +22,15 @@ export async function handleGenerateCommand(context: AppContext): Promise<void> 
     throw new Error('The --prompt option is required for the generate command.');
   }
 
-  logger.info('Finding relevant code for context...');
-  const topK = profile.rag?.topK || 3;
-  const codeContext = await queryVectorIndex(userPrompt, aiProvider, topK);
+  // Determine the correct project root to analyze
+  const projectRoot = path.resolve(args.path || profile.cwd || '.');
 
-  logger.info('Generating code snippet...');
+  logger.info(`🔎 Finding relevant code for context in ${projectRoot}...`);
+  const topK = profile.rag?.topK || 3;
+  // Pass the projectRoot to the queryVectorIndex function
+  const codeContext = await queryVectorIndex(projectRoot, userPrompt, aiProvider, topK);
+
+  logger.info('🤖 Generating code snippet...');
   const prompt = constructGeneratePrompt(userPrompt, codeContext);
 
   const response = await aiProvider.invoke(prompt, false);
@@ -40,7 +45,7 @@ export async function handleGenerateCommand(context: AppContext): Promise<void> 
 
   if (outputPath) {
     await fs.writeFile(outputPath, finalCode, 'utf-8');
-    logger.info(`Code successfully saved to ${outputPath}`);
+    logger.info(`✅ Code successfully saved to ${outputPath}`);
   } else {
     logger.info('\n--- Generated Code ---');
     console.log(finalCode);

@@ -9,17 +9,25 @@ import { GeminiProvider } from './providers/gemini.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 
 export function createAIProvider(profile: Profile, apiKey: string): AIProvider {
-  const { provider = 'gemini', model, temperature } = profile;
+  const { provider = 'gemini', providers, temperature } = profile;
 
-  if (!model) {
-    throw new Error('No AI model specified in the current profile.');
+  const providerConfig = providers?.[provider.toLowerCase()];
+
+  if (!providerConfig) {
+    throw new Error(`Configuration for the active provider "${provider}" is missing in the profile.`);
+  }
+
+  const { generation: generationModel, embedding: embeddingModel, rateLimit } = providerConfig;
+  
+  if (!generationModel || !embeddingModel) {
+    throw new Error(`Generation and/or embedding models are missing for the "${provider}" provider configuration.`);
   }
 
   switch (provider.toLowerCase()) {
     case 'gemini':
-      return new GeminiProvider(apiKey, model, temperature);
+      return new GeminiProvider(apiKey, generationModel, embeddingModel, temperature, rateLimit);
     case 'anthropic':
-      return new AnthropicProvider(apiKey, model, temperature);
+      return new AnthropicProvider(apiKey, generationModel, temperature);
     default:
       throw new Error(`Unsupported AI provider: "${provider}"`);
   }

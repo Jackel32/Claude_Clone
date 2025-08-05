@@ -12,113 +12,170 @@ import { fileURLToPath } from 'url';
 import * as diff from 'diff';
 
 import { getProfile } from './config/index.js';
-import { getApiKey } from './auth/index.js';
 import { createAIProvider } from './ai/provider-factory.js';
 import { logger } from './logger/index.js';
 import { AppContext, ChatMessage } from './types.js';
-import { constructChatPrompt, constructDiffAnalysisPrompt  } from './ai/index.js';
-
-import { getRecentCommits, getDiffBetweenCommits } from './fileops/index.js';
-import { buildFileTree, listSymbolsInFile, buildTestableFileTree  } from './codebase/index.js';
-
+import { constructChatPrompt, constructDiffAnalysisPrompt } from './ai/index.js';
+import { getRecentCommits, getDiffBetweenCommits, cloneRepo } from './fileops/index.js';
+import { buildFileTree, listSymbolsInFile, buildTestableFileTree, initializeParser } from './codebase/index.js';
 import { getChatContext } from './core/chat-core.js';
 import { runAddDocs } from './core/add-docs-core.js';
 import { runRefactor } from './core/refactor-core.js';
 import { runTestGeneration } from './core/test-core.js';
-import { runAgent } from './core/agent-core.js';
+import { runAgent, AgentUpdate } from './core/agent-core.js';
 
 const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const CODE_ANALYSIS_ROOT = './code-to-analyze';
 
-async function main() {
+let serverInstance: http.Server | null = null;
+
+export async function startServer() {
+    await initializeParser();
+
     const app = express();
     const server = http.createServer(app);
     const wss = new WebSocketServer({ server });
 
     const profile = await getProfile();
-    const apiKey = await getApiKey();
+    const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
+    const providerConfig = profile.providers?.[activeProviderName];
+    
+    let apiKey: string | undefined;
+    if (activeProviderName === 'gemini') apiKey = process.env.GOOGLE_API_KEY;
+    else if (activeProviderName === 'anthropic') apiKey = process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) apiKey = providerConfig?.apiKey;
+
+    if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
+        throw new Error(`API key for provider "${activeProviderName}" not found.`);
+    }
+    
     const aiProvider = createAIProvider(profile, apiKey);
     const appContext: Omit<AppContext, 'args'> = { profile, aiProvider, logger };
+    const reposDir = path.join(process.env.HOME || '/root', '.claude-code', 'repos');
+    await fs.mkdir(reposDir, { recursive: true });
     
     app.use(express.json());
     app.use(express.static(path.join(__dirname, '../public')));
     
-    // --- API ENDPOINTS ---
+    app.set('CODE_ANALYSIS_ROOT', '');
 
-    app.get('/api/file-tree', async (req, res) => {
+    const getActiveRepoPath = (req: express.Request): string => {
+        const repoPath = req.app.get('CODE_ANALYSIS_ROOT');
+        if (!repoPath) throw new Error("No active repository selected.");
+        return repoPath;
+    }
+
+    // --- API ENDPOINTS ---
+    app.get('/api/repos', async (req, res) => {
         try {
-            const tree = await buildFileTree(CODE_ANALYSIS_ROOT);
-            res.json(tree);
+            const entries = await fs.readdir(reposDir, { withFileTypes: true });
+            const directories = entries.filter(e => e.isDirectory()).map(e => e.name);
+            res.json(directories);
         } catch (error) {
             res.status(500).json({ error: (error as Error).message });
         }
     });
 
-    app.post('/api/add-docs', async (req, res) => {
+    app.post('/api/repos/clone', async (req, res) => {
         try {
-            const { filePath } = req.body;
-            const originalContent = await fs.readFile(filePath, 'utf-8');
-            const newContent = await runAddDocs(filePath, { ...appContext, args: {} });
-            const patch = diff.createPatch(filePath, originalContent, newContent);
-            res.json({ patch, newContent });
+            const { repoUrl, pat } = req.body;
+            const repoName = path.basename(repoUrl, '.git');
+            const localPath = path.join(reposDir, repoName);
+            await cloneRepo(repoUrl, pat, localPath);
+            res.json({ success: true, repoName });
         } catch (error) {
             res.status(500).json({ error: (error as Error).message });
         }
     });
     
-    app.post('/api/refactor', async (req, res) => {
-        try {
-            const { filePath, prompt } = req.body;
-            const originalContent = await fs.readFile(filePath, 'utf-8');
-            const newContent = await runRefactor(filePath, prompt, { ...appContext, args: {} });
-            const patch = diff.createPatch(filePath, originalContent, newContent);
-            res.json({ patch, newContent });
-        } catch (error) {
-            res.status(500).json({ error: (error as Error).message });
-        }
+    app.post('/api/repos/active', (req, res) => {
+        const { repoName } = req.body;
+        const activeRepoPath = path.join(reposDir, repoName);
+        app.set('CODE_ANALYSIS_ROOT', activeRepoPath);
+        logger.info(`Active repository set to: ${activeRepoPath}`);
+        res.json({ success: true });
     });
 
-    app.post('/api/test', async (req, res) => {
+    if (process.env.NODE_ENV === 'test') {
+        app.post('/api/test/set-active-repo', (req, res) => {
+            const { repoPath } = req.body;
+            app.set('CODE_ANALYSIS_ROOT', path.resolve(repoPath));
+            logger.info(`[TEST] Active repository set to: ${app.get('CODE_ANALYSIS_ROOT')}`);
+            res.json({ success: true });
+        });
+    }
+
+    app.get('/api/file-tree', async (req, res) => {
         try {
-            const { filePath, symbol, framework } = req.body;
-            const newContent = await runTestGeneration(filePath, symbol, framework, { ...appContext, args: {} });
-            res.json({ newContent });
-        } catch (error) {
-            res.status(500).json({ error: (error as Error).message });
-        }
+            const tree = await buildFileTree(getActiveRepoPath(req));
+            res.json(tree);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+    
+    app.get('/api/testable-file-tree', async (req, res) => {
+        try {
+            const tree = await buildTestableFileTree(getActiveRepoPath(req));
+            res.json(tree);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+
+    app.post('/api/list-symbols', async (req, res) => {
+        try {
+            const { filePath } = req.body;
+            const symbols = await listSymbolsInFile(filePath);
+            res.json(symbols);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
     app.get('/api/commits', async (req, res) => {
         try {
-            const commits = await getRecentCommits(CODE_ANALYSIS_ROOT);
+            const commits = await getRecentCommits(getActiveRepoPath(req));
             res.json(commits);
-        } catch (error) {
-            res.status(500).json({ error: (error as Error).message });
-        }
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    // Endpoint to get a diff between two commits
     app.post('/api/diff', async (req, res) => {
         try {
             const { startCommit, endCommit } = req.body;
-            const diffContent = await getDiffBetweenCommits(startCommit, endCommit, CODE_ANALYSIS_ROOT);
-            
+            const diffContent = await getDiffBetweenCommits(startCommit, endCommit, getActiveRepoPath(req));
             let analysis = 'AI analysis could not be generated for this diff.';
             if (diffContent && diffContent.trim()) {
                 const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
                 const response = await aiProvider.invoke(analysisPrompt, false);
                 analysis = response?.candidates?.[0]?.content?.parts?.[0]?.text || analysis;
             }
-            
-            // It now correctly sends BOTH the patch and the analysis.
             res.json({ patch: diffContent, analysis });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-        } catch (error) {
-            logger.error(error, `Error in /api/diff`);
-            res.status(500).json({ error: (error as Error).message });
-        }
+    app.post('/api/add-docs', async (req, res) => {
+        try {
+            const { filePath } = req.body;
+            const originalContent = await fs.readFile(filePath, 'utf-8');
+            const newContent = await runAddDocs(filePath, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            const patch = diff.createPatch(filePath, originalContent, newContent);
+            res.json({ patch, newContent });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+    
+    app.post('/api/refactor', async (req, res) => {
+        try {
+            const { filePath, prompt } = req.body;
+            const originalContent = await fs.readFile(filePath, 'utf-8');
+            const newContent = await runRefactor(filePath, prompt, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            const patch = diff.createPatch(filePath, originalContent, newContent);
+            res.json({ patch, newContent });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+
+    app.post('/api/test', async (req, res) => {
+        try {
+            const { filePath, symbol, framework } = req.body;
+            const newContent = await runTestGeneration(filePath, symbol, framework, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            res.json({ newContent });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
     app.post('/api/apply-changes', async (req, res) => {
@@ -126,60 +183,33 @@ async function main() {
             const { filePath, newContent } = req.body;
             await fs.writeFile(filePath, newContent, 'utf-8');
             res.json({ success: true, message: `File ${filePath} updated.` });
-        } catch (error) {
-            res.status(500).json({ error: (error as Error).message });
-        }
-    });
-
-    // Endpoint to list functions/classes in a file
-    app.post('/api/list-symbols', async (req, res) => {
-        try {
-            const { filePath } = req.body;
-            const symbols = await listSymbolsInFile(filePath);
-            res.json(symbols);
-        } catch (error) {
-            res.status(500).json({ error: (error as Error).message });
-        }
-    });
-
-    // Endpoint to get a tree of only files with testable symbols
-    app.get('/api/testable-file-tree', async (req, res) => {
-        try {
-            const tree = await buildTestableFileTree(CODE_ANALYSIS_ROOT);
-            res.json(tree);
-        } catch (error) {
-            // Add this line to print the raw error to the terminal
-            console.error("--- DETAILED ERROR in /api/testable-file-tree ---", error);
-            
-            logger.error(error, `Error in /api/testable-file-tree`);
-            res.status(500).json({ error: (error as Error).message });
-        }
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
     // --- WebSocket Server ---
     wss.on('connection', (ws) => {
         logger.info('Client connected to WebSocket');
         const conversationHistory: ChatMessage[] = [];
+        const activeRepo = app.get('CODE_ANALYSIS_ROOT');
 
         ws.on('message', async (message) => {
             try {
                 const data = JSON.parse(message.toString());
+                const agentContext = { ...appContext, args: { path: activeRepo } };
 
                 if (data.type === 'agent-task') {
-                    const onUpdate = (update: any) => ws.send(JSON.stringify(update));
-                    await runAgent(data.task, { ...appContext, args: {} }, onUpdate);
-                } else { // Default to chat
+                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify(update));
+                    await runAgent(data.task, agentContext, onUpdate);
+                } else {
                     const query = data.content;
                     conversationHistory.push({ role: 'user', content: query });
 
-                    const contextStr = await getChatContext(query, { ...appContext, args: {} });
+                    const contextStr = await getChatContext(query, agentContext);
                     const prompt = constructChatPrompt(conversationHistory, contextStr);
                     const stream = await aiProvider.invoke(prompt, true);
                     
                     ws.send(JSON.stringify({ type: 'start' }));
 
-                    // This part needs to be adapted for different streaming formats
-                    // For Gemini, we read the whole stream then send chunks
                     const reader = stream.getReader();
                     const decoder = new TextDecoder();
                     let fullResponse = '';
@@ -207,13 +237,38 @@ async function main() {
                 ws.send(JSON.stringify({ type: 'error', content: (error as Error).message }));
             }
         });
-
         ws.on('close', () => logger.info('Client disconnected'));
     });
 
-    server.listen(PORT, () => {
-        logger.info(`Server is listening on http://localhost:${PORT}`);
+    serverInstance = server;
+    return server;
+}
+
+export function stopServer() {
+    return new Promise<void>((resolve) => {
+        if (serverInstance) {
+            serverInstance.close(() => {
+                serverInstance = null;
+                resolve();
+            });
+        } else {
+            resolve();
+        }
     });
 }
 
-main();
+async function mainEntryPoint() {
+    try {
+        const server = await startServer();
+        server.listen(PORT, () => {
+            logger.info(`Server is listening on http://localhost:${PORT}`);
+        });
+    } catch (error) {
+        logger.error(error, 'The web server failed to start.');
+        process.exit(1);
+    }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    mainEntryPoint();
+}

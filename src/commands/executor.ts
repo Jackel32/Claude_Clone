@@ -7,7 +7,6 @@ import { handleExplainCommand, handleIndexCommand, handleReportCommand,
         handleDiffCommand, handleChatCommand, handleGenerateCommand,
         handleRefactorCommand, handleAddDocsCommand, handleTestCommand  } from './handlers/index.js';
 import { getProfile } from '../config/index.js';
-import { getApiKey } from '../auth/index.js';
 import { createAIProvider } from '../ai/provider-factory.js';
 import { logger } from '../logger/index.js';
 import { AppContext } from '../types.js';
@@ -19,7 +18,24 @@ import { AppContext } from '../types.js';
 export async function executeCommand(args: any): Promise<void> {
   // --- Create the shared AppContext here ---
   const profile = await getProfile(args.profile);
-  const apiKey = await getApiKey(args.profile);
+
+  const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
+  const providerConfig = profile.providers?.[activeProviderName];
+
+  let apiKey: string | undefined;
+  if (activeProviderName === 'gemini') {
+    apiKey = process.env.GOOGLE_API_KEY;
+  } else if (activeProviderName === 'anthropic') {
+    apiKey = process.env.ANTHROPIC_API_KEY;
+  }
+
+  if (!apiKey) {
+    apiKey = providerConfig?.apiKey;
+  }
+
+  if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
+    throw new Error(`API key for provider "${activeProviderName}" not found.`);
+  }
 
   const aiProvider = createAIProvider(profile, apiKey);
 

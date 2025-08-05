@@ -5,7 +5,6 @@
 
 import inquirer from 'inquirer';
 import { getProfile } from './config/index.js';
-import { getApiKey } from './auth/index.js';
 import { createAIProvider } from './ai/provider-factory.js';
 import { logger } from './logger/index.js';
 import { AppContext } from './types.js';
@@ -36,7 +35,27 @@ export async function startMainMenu(): Promise<void> {
 
   // Create the shared application context once at the start.
   const profile = await getProfile();
-  const apiKey = await getApiKey();
+
+    const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
+  const providerConfig = profile.providers?.[activeProviderName];
+  
+  let apiKey: string | undefined;
+  // Prioritize environment variables
+  if (activeProviderName === 'gemini') {
+    apiKey = process.env.GOOGLE_API_KEY;
+  } else if (activeProviderName === 'anthropic') {
+    apiKey = process.env.ANTHROPIC_API_KEY;
+  }
+
+  // Fallback to the key in the config file
+  if (!apiKey) {
+    apiKey = providerConfig?.apiKey;
+  }
+
+  if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
+    throw new Error(`API key for provider "${activeProviderName}" not found. Please set it in your config or as an environment variable.`);
+  }
+
   const aiProvider = createAIProvider(profile, apiKey);
 
   const baseContext: Omit<AppContext, 'args'> = {
@@ -44,6 +63,8 @@ export async function startMainMenu(): Promise<void> {
     aiProvider,
     logger,
   };
+
+  const cwd = profile.cwd || '.';
 
   logger.info('Welcome to Kinch Code AI Assistant!');
 
@@ -82,15 +103,15 @@ export async function startMainMenu(): Promise<void> {
         break;
 
       case 'Update codebase index':
-        await handleIndexCommand({ ...baseContext, args: {} });
+        await handleIndexCommand({ ...baseContext, args: { path: cwd } });
         break;
       
       case 'Analyze Git commits (interactive)':
-        await handleDiffCommand({ ...baseContext, args: {} });
+        await handleDiffCommand({ ...baseContext, args: { path: cwd } });
         break;
       
       case 'Generate a high-level project report':
-        await handleReportCommand({ ...baseContext, args: {} });
+        await handleReportCommand({ ...baseContext, args: { path: cwd } });
         break;
       
       case 'Generate a new code snippet':

@@ -7,3 +7,4 @@ export * from './indexer.js';
 export * from './ast.js';
 export * from './vectorizer.js';
 export * from './tree.js';
+export * from './cache-manager.js';

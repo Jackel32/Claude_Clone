@@ -16,9 +16,28 @@ export const defaultConfig: Config = {
   profiles: {
     default: {
       provider: 'gemini',
-      apiKey: 'AIzaSyDACYbCDEAtTELSFcTahQsezKfh4ul5Bfw',
-      model: 'gemini-2.5-flash',
+      providers: {
+        gemini: {
+          apiKey: 'YOUR_GOOGLE_API_KEY_HERE',
+          generation: 'gemini-2.5-flash',
+          embedding: 'gemini-2.5-flash-embedding',
+          rateLimit: {
+            requestsPerMinute: 60,
+            tokensPerMinute: 1000000,
+          },
+        },
+        anthropic: {
+          apiKey: 'YOUR_ANTHROPIC_API_KEY_HERE',
+          generation: 'claude-3-haiku-20240307',
+          embedding: 'not-applicable',
+          rateLimit: {
+            requestsPerMinute: 20,
+            tokensPerMinute: 200000,
+          },
+        },
+      },
       temperature: 0.7,
+      cwd: '.',
       rag: {
         topK: 3, // Default number of results to retrieve
       },

@@ -17,5 +17,5 @@ export interface AIProvider {
    * @param text The text to embed.
    * @returns A promise that resolves to the vector embedding array.
    */
-  embed(text: string): Promise<number[]>;
+  embed(text: string, projectRoot: string): Promise<number[]>;
 }

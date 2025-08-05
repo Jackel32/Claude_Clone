@@ -11,6 +11,67 @@ document.addEventListener('DOMContentLoaded', () => {
     const testBtn = document.getElementById('test-btn');
     const gitDiffBtn = document.getElementById('git-diff-btn');
 
+    // --- REPO SELECTOR LOGIC (NEW) ---
+    const repoSelectorOverlay = document.getElementById('repo-selector-overlay');
+    const appContainer = document.getElementById('app-container');
+    const repoList = document.getElementById('repo-list');
+    const cloneForm = document.getElementById('clone-form');
+    const repoUrlInput = document.getElementById('repo-url');
+    const repoPatInput = document.getElementById('repo-pat');
+
+    async function initializeRepoSelector() {
+        const response = await fetch('/api/repos');
+        const repos = await response.json();
+        repoList.innerHTML = '';
+        if (repos.length > 0) {
+            repos.forEach(repoName => {
+                const li = document.createElement('li');
+                li.textContent = repoName;
+                li.onclick = () => selectRepo(repoName);
+                repoList.appendChild(li);
+            });
+        } else {
+            repoList.innerHTML = '<li>No repositories cloned yet.</li>';
+        }
+    }
+
+    async function selectRepo(repoName) {
+        await fetch('/api/repos/active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoName }),
+        });
+        repoSelectorOverlay.classList.add('hidden');
+        appContainer.classList.remove('hidden');
+    }
+
+    cloneForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const repoUrl = repoUrlInput.value;
+        const pat = repoPatInput.value;
+        
+        const cloneButton = cloneForm.querySelector('button');
+        cloneButton.textContent = 'Cloning...';
+        cloneButton.disabled = true;
+
+        const response = await fetch('/api/repos/clone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoUrl, pat }),
+        });
+        const result = await response.json();
+        
+        if (response.ok) {
+            await selectRepo(result.repoName);
+        } else {
+            alert(`Error cloning repository: ${result.error}`);
+            cloneButton.textContent = 'Clone';
+            cloneButton.disabled = false;
+        }
+    });
+
+    initializeRepoSelector(); // Run on page load
+
     // --- TAB MANAGEMENT ---
     let tabCounter = 0;
 
