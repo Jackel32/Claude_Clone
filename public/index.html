@@ -4,52 +4,66 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kinch Code AI Assistant</title>
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css" />
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="repo-selector-overlay">
         <div id="repo-selector">
-            <h2>Select a Repository</h2>
-            <div id="existing-repos">
-                <p>Choose an existing project:</p>
-                <ul id="repo-list"></ul>
+            <h2>Select a Project</h2>
+            <div id="local-projects">
+                <h3>Local Workspace Projects</h3>
+                <ul id="local-list"><li>Loading...</li></ul>
+            </div>
+            <hr>
+            <div id="cloned-repos">
+                <h3>Cloned Repositories</h3>
+                <ul id="repo-list"><li>Loading...</li></ul>
             </div>
             <hr>
             <div>
-                <p>Or clone a new one:</p>
-                <form id="clone-form">
+                <h3>Or clone a new one:</h3>
+                <form id="clone-form" autocomplete="off">
                     <label for="repo-url">Repository URL</label>
-                    <input type="url" id="repo-url" placeholder="https://github.com/user/repo.git" required>
-                    
+                    <input type="url" id="repo-url" placeholder="https://github.com/user/repo.git" required autocomplete="off">
                     <label for="repo-pat">Personal Access Token (PAT)</label>
-                    <input type="password" id="repo-pat" placeholder="Required for private repos">
-                    
+                    <input type="password" id="repo-pat" placeholder="Required for private repos" autocomplete="new-password">
                     <button type="submit">Clone</button>
                 </form>
                 <small>A Personal Access Token is required for private repositories.</small>
             </div>
         </div>
     </div>
+    
+    <div id="indexing-modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Indexing Required</h3>
+            <p>This project's code has not been indexed yet. Indexing is required for chat. Would you like to index it now?</p>
+            <div class="modal-actions">
+                <button id="index-cancel-btn">Cancel</button>
+                <button id="index-now-btn">OK</button>
+            </div>
+        </div>
+    </div>
 
     <div id="app-container" class="hidden">
-
         <div id="sidebar">
             <h2>Actions</h2>
             <button id="agent-task-btn">Execute Task</button>
+            <button id="report-btn">Project Report</button>
+            <hr>
             <button id="add-docs-btn">Add Docs</button>
             <button id="refactor-btn">Refactor File</button>
             <button id="test-btn">Generate Test</button>
             <button id="git-diff-btn">Analyze Git Commits</button>
         </div>
-
         <div id="main-content">
-            <div id="tab-bar">
-                </div>
+            <div id="tab-bar"></div>
             <div id="tab-panels">
                 <div class="tab-panel active" data-tab-id="home">
                     <div id="chat-window">
                         <div class="message assistant">
-                            <p>Welcome to the Kinch Code AI Assistant!</p>
+                            <p>Welcome! Select a repository to begin, or ask a general question.</p>
                         </div>
                     </div>
                     <form id="chat-form">
@@ -57,9 +71,10 @@
                         <button type="submit">Send</button>
                     </form>
                 </div>
-                </div>
+            </div>
         </div>
     </div>
+
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html.min.js"></script>
     <script src="app.js"></script>
 </body>

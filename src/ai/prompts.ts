@@ -233,3 +233,41 @@ ${diffContent}
 
 Analysis:`;
 }
+
+/**
+ * Constructs a prompt to summarize a single source file.
+ * @param filePath The path of the file.
+ * @param fileContent The content of the file.
+ * @returns The formatted prompt string.
+ */
+export function constructFileSummaryPrompt(filePath: string, fileContent: string): string {
+  return `Analyze the following source code file from the path "${filePath}".
+Provide a concise, one-paragraph summary of its primary purpose, its key functions or classes, and its main responsibilities within the application.
+
+<FILE CONTENT>
+${fileContent}
+</FILE CONTENT>
+
+Summary:`;
+}
+
+/**
+ * Constructs a prompt to generate a final report from a collection of file summaries.
+ * @param summaries A string containing all the individual file summaries.
+ * @returns The formatted prompt string.
+ */
+export function constructFinalReportPrompt(summaries: string): string {
+  return `You are an expert software architect.
+Analyze the following collection of file summaries from a codebase.
+Based *only* on these summaries, generate a high-level technical README.md for the entire project.
+The report should include:
+1.  **Overall Architecture:** A brief description of the project's structure.
+2.  **Key Components:** A breakdown of the main modules described in the summaries and their responsibilities.
+3.  **Potential Improvements:** Suggest 2-3 potential feature enhancements or refactorings based on the summaries.
+
+<FILE SUMMARIES>
+${summaries}
+</FILE SUMMARIES>
+
+Full README.md Report:`;
+}

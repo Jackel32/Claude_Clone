@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import { LocalIndex, QueryResult } from 'vectra';
+import { AgentCallback } from '../core/agent-core.js';
 import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
@@ -46,23 +47,32 @@ export async function getVectorIndex(projectRoot: string): Promise<LocalIndex> {
  * @param {string} content - The content of the file.
  * @param {AIProvider} client - The AI client to generate embeddings.
  */
-export async function updateVectorIndex(projectRoot: string, filePath: string, content: string, client: AIProvider): Promise<void> {
-  const vectorIndex = await getVectorIndex(projectRoot);
-  if (!(await vectorIndex.isIndexCreated())) {
-      await vectorIndex.createIndex();
-  }
+export async function updateVectorIndex(
+    projectRoot: string,
+    filePath: string,
+    content: string,
+    client: AIProvider,
+    onUpdate: AgentCallback // Add the onUpdate callback parameter
+): Promise<void> {
+    const vectorIndex = await getVectorIndex(projectRoot);
+    if (!(await vectorIndex.isIndexCreated())) {
+        await vectorIndex.createIndex();
+    }
+    
+    const chunks = chunkText(content);
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        if (!chunk.trim()) continue;
 
-  const chunks = chunkText(content);
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    if (!chunk.trim()) continue;
+        // Report progress for the current chunk
+        onUpdate({ type: 'action', content: `    chunk ${i + 1}/${chunks.length}...` });
 
-    const vector = await client.embed(chunk, projectRoot);
-    await vectorIndex.upsertItem({
-      vector,
-      metadata: { filePath, chunk: i + 1, content: chunk },
-    });
-  }
+        const vector = await client.embed(chunk, projectRoot);
+        await vectorIndex.upsertItem({
+            vector,
+            metadata: { filePath, chunk: i + 1, content: chunk },
+        });
+    }
 }
 
 /**

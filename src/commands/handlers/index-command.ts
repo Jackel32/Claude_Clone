@@ -1,76 +1,63 @@
 /**
  * @file src/commands/handlers/index-command.ts
- * @description Handler for the 'index' command.
+ * @description A simple wrapper that runs the core indexing logic for the CLI.
  */
 
-import * as path from 'path';
-import { promises as fs } from 'fs';
-import { scanProject } from '../../codebase/scanner.js';
-import { checkCache, updateCache, loadCache, saveCache } from '../../codebase/indexer.js';
-import { updateVectorIndex, getVectorIndex } from '../../codebase/vectorizer.js';
 import { AppContext } from '../../types.js';
+import { runIndex } from '../../core/index-core.js';
+import { AgentUpdate } from '../../core/agent-core.js';
+
 import * as cliProgress from 'cli-progress';
+import { logger } from '../../logger/index.js';
 
 /**
- * Handles the logic for indexing a codebase into the vector DB.
+ * Handles the CLI UI for indexing a codebase.
  * @param {AppContext} context - The application context.
  */
 export async function handleIndexCommand(context: AppContext): Promise<void> {
-  const { logger, aiProvider, args } = context;
-  const projectRoot = path.resolve(args.path || '.');
+  const progressBar = new cliProgress.SingleBar({
+    format: '{bar} | {percentage}% || {task}',
+    barCompleteChar: '\u2588',
+    barIncompleteChar: '\u2591',
+  }, cliProgress.Presets.shades_classic);
   
-  logger.info(`🔍 Scanning project at ${projectRoot}...`);
-  const currentFiles = await scanProject(projectRoot);
-  logger.info(`Found ${currentFiles.length} files to analyze.`);
+  let totalFiles = 0;
+  let processedFiles = 0;
 
-  logger.info('Checking for deleted files to remove from cache...');
-  const cache = await loadCache(projectRoot);
-  const cachedFiles = Object.keys(cache);
-  const deletedFiles = cachedFiles.filter(file => !currentFiles.includes(file));
+  const onUpdate = (update: AgentUpdate) => {
+    switch (update.type) {
+      case 'thought':
+        // Stop the bar to print a thought, then restart it if needed
+        progressBar.stop();
+        logger.info(update.content);
+        if (totalFiles > 0) progressBar.start(totalFiles, processedFiles);
+        break;
 
-  if (deletedFiles.length > 0) {
-      logger.warn(`Found ${deletedFiles.length} deleted files. Removing from cache...`);
-      deletedFiles.forEach(file => delete cache[file]);
-      await saveCache(projectRoot, cache);
+      case 'action':
+        if (update.content.startsWith('start-indexing')) {
+            totalFiles = parseInt(update.content.split('|')[1], 10);
+            progressBar.start(totalFiles, 0);
+        } else if (update.content.trim().startsWith('chunk')) {
+            // Update the text to show chunk progress for the current file
+            progressBar.update(processedFiles, { task: update.content.trim() });
+        }
+        break;
 
-      logger.warn('Rebuilding vector index to remove deleted file data...');
-      const vectorIndex = await getVectorIndex(projectRoot);
-      // Check if index exists before trying to delete
-      if (await vectorIndex.isIndexCreated()) {
-        await vectorIndex.deleteIndex();
-      }
-  }
+      case 'finish':
+        progressBar.update(totalFiles, { task: 'Completed!' }); // Make sure bar is full
+        progressBar.stop();
+        logger.info(`\n✨ ${update.content}`);
+        break;
 
-  const filesToIndex: string[] = [];
-  logger.info('Checking for new and modified files...');
-  for (const file of currentFiles) {
-    const cachedAnalysis = await checkCache(projectRoot, file);
-    if (!cachedAnalysis) {
-      filesToIndex.push(file);
+      case 'error':
+        progressBar.stop();
+        logger.error(`\n❌ An error occurred during indexing: ${update.content}`);
+        break;
     }
-  }
+  };
 
- if (filesToIndex.length === 0) {
-    logger.info(`\n✨ Codebase is already up-to-date.`);
-    return;
-  }
+  await runIndex(context, onUpdate);
 
-  logger.info(`⚙️  Vectorizing ${filesToIndex.length} new or modified files...`);
-
-  const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
-  progressBar.start(filesToIndex.length, 0);
-
-  for (const file of filesToIndex) {
-    try {
-        const content = await fs.readFile(file, 'utf-8');
-        await updateVectorIndex(projectRoot, file, content, aiProvider);
-        await updateCache(projectRoot, file, { vectorizedAt: new Date().toISOString() });
-    } catch (error) {
-        logger.warn(`Could not process file ${file}: ${(error as Error).message}`);
-    }
-    progressBar.increment();
-  }
-
-  progressBar.stop();
-  logger.info(`\n✨ Successfully vectorized ${filesToIndex.length} files.`);
+  // This is a final check to ensure the file counter is updated after each file is fully processed
+  // This part of the logic has been moved inside the onUpdate handler to be more reactive.
 }

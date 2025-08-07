@@ -14,7 +14,7 @@ import { scanProject } from '../codebase/index.js';
 const execAsync = promisify(exec);
 
 export type AgentUpdate = {
-    type: 'thought' | 'action' | 'observation' | 'finish' | 'error';
+    type: 'thought' | 'action' | 'observation' | 'finish' | 'error' | 'stream-start' | 'stream-chunk' | 'stream-end';
     content: any;
 };
 export type AgentCallback = (update: AgentUpdate) => void;

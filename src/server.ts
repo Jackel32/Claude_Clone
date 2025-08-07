@@ -23,10 +23,15 @@ import { runAddDocs } from './core/add-docs-core.js';
 import { runRefactor } from './core/refactor-core.js';
 import { runTestGeneration } from './core/test-core.js';
 import { runAgent, AgentUpdate } from './core/agent-core.js';
+import { runReport } from './core/report-core.js';
+import { isIndexUpToDate } from './codebase/index.js';
+import { runIndex } from './core/index-core.js';
+import { log } from 'console';
 
 const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const CODE_ANALYSIS_ROOT = './code-to-analyze';
 
 let serverInstance: http.Server | null = null;
 
@@ -51,7 +56,7 @@ export async function startServer() {
         throw new Error(`API key for provider "${activeProviderName}" not found.`);
     }
     
-    const aiProvider = createAIProvider(profile, apiKey);
+    const aiProvider = createAIProvider(profile, apiKey, logger);
     const appContext: Omit<AppContext, 'args'> = { profile, aiProvider, logger };
     const reposDir = path.join(process.env.HOME || '/root', '.claude-code', 'repos');
     await fs.mkdir(reposDir, { recursive: true });
@@ -59,6 +64,13 @@ export async function startServer() {
     app.use(express.json());
     app.use(express.static(path.join(__dirname, '../public')));
     
+    app.use('/api', (req, res, next) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        next();
+    });
+
     app.set('CODE_ANALYSIS_ROOT', '');
 
     const getActiveRepoPath = (req: express.Request): string => {
@@ -68,14 +80,35 @@ export async function startServer() {
     }
 
     // --- API ENDPOINTS ---
-    app.get('/api/repos', async (req, res) => {
+    app.get('/api/projects', async (req, res) => {
         try {
-            const entries = await fs.readdir(reposDir, { withFileTypes: true });
-            const directories = entries.filter(e => e.isDirectory()).map(e => e.name);
-            res.json(directories);
+            // Get projects cloned via the app
+            const clonedEntries = await fs.readdir(reposDir, { withFileTypes: true });
+            const clonedProjects = clonedEntries
+                .filter(e => e.isDirectory())
+                .map(e => ({ name: e.name, path: path.join(reposDir, e.name) }));
+
+            // Get local projects from the base mounted volume, not the "active" one
+            const localEntries = await fs.readdir(CODE_ANALYSIS_ROOT, { withFileTypes: true });
+            const localProjects = localEntries
+                .filter(e => e.isDirectory())
+                .map(e => ({ name: e.name, path: path.join(CODE_ANALYSIS_ROOT, e.name) }));
+
+            res.json({ cloned: clonedProjects, local: localProjects });
         } catch (error) {
+            // Log the actual error on the server for better debugging
+            logger.error(error, 'Error in /api/projects');
             res.status(500).json({ error: (error as Error).message });
         }
+    });
+    
+    // This endpoint is now more generic
+    app.post('/api/set-active-project', (req, res) => {
+        const { projectPath } = req.body;
+        // The path from the client is already the full path inside the container
+        app.set('CODE_ANALYSIS_ROOT', projectPath);
+        logger.info(`Active repository set to: ${projectPath}`);
+        res.json({ success: true });
     });
 
     app.post('/api/repos/clone', async (req, res) => {
@@ -138,8 +171,9 @@ export async function startServer() {
 
     app.post('/api/diff', async (req, res) => {
         try {
+            const activeRepoPath = getActiveRepoPath(req);
             const { startCommit, endCommit } = req.body;
-            const diffContent = await getDiffBetweenCommits(startCommit, endCommit, getActiveRepoPath(req));
+            const diffContent = await getDiffBetweenCommits(startCommit, endCommit, activeRepoPath);
             let analysis = 'AI analysis could not be generated for this diff.';
             if (diffContent && diffContent.trim()) {
                 const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
@@ -153,18 +187,30 @@ export async function startServer() {
     app.post('/api/add-docs', async (req, res) => {
         try {
             const { filePath } = req.body;
+            // The server reads the file content once.
             const originalContent = await fs.readFile(filePath, 'utf-8');
-            const newContent = await runAddDocs(filePath, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            
+            const activeRepoPath = getActiveRepoPath(req);
+            const requestContext = { ...appContext, args: { path: activeRepoPath } };
+
+            // The content is passed to the core function.
+            const newContent = await runAddDocs(originalContent, requestContext);
+            
             const patch = diff.createPatch(filePath, originalContent, newContent);
             res.json({ patch, newContent });
-        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+        } catch (error) {
+            logger.error(error, `Error in /api/add-docs for file: ${req.body.filePath}`);
+            res.status(500).json({ error: (error as Error).message });
+        }
     });
     
     app.post('/api/refactor', async (req, res) => {
         try {
+            const activeRepoPath = getActiveRepoPath(req);
             const { filePath, prompt } = req.body;
             const originalContent = await fs.readFile(filePath, 'utf-8');
-            const newContent = await runRefactor(filePath, prompt, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            const requestContext = { ...appContext, args: { path: activeRepoPath } };
+            const newContent = await runRefactor(filePath, prompt, requestContext);
             const patch = diff.createPatch(filePath, originalContent, newContent);
             res.json({ patch, newContent });
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
@@ -172,8 +218,10 @@ export async function startServer() {
 
     app.post('/api/test', async (req, res) => {
         try {
+            const activeRepoPath = getActiveRepoPath(req);
             const { filePath, symbol, framework } = req.body;
-            const newContent = await runTestGeneration(filePath, symbol, framework, { ...appContext, args: { path: getActiveRepoPath(req) } });
+            const requestContext = { ...appContext, args: { path: activeRepoPath } };
+            const newContent = await runTestGeneration(filePath, symbol, framework, requestContext);
             res.json({ newContent });
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
@@ -190,26 +238,34 @@ export async function startServer() {
     wss.on('connection', (ws) => {
         logger.info('Client connected to WebSocket');
         const conversationHistory: ChatMessage[] = [];
-        const activeRepo = app.get('CODE_ANALYSIS_ROOT');
-
+        
         ws.on('message', async (message) => {
             try {
                 const data = JSON.parse(message.toString());
+                const activeRepo = app.get('CODE_ANALYSIS_ROOT');
                 const agentContext = { ...appContext, args: { path: activeRepo } };
 
                 if (data.type === 'agent-task') {
                     const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify(update));
-                    await runAgent(data.task, agentContext, onUpdate);
+                    runAgent(data.task, agentContext, onUpdate);
+                } else if (data.type === 'get-report') {
+                    const onUpdate = (update: any) => ws.send(JSON.stringify(update));
+                    runReport(agentContext, onUpdate);
+                } else if (data.type === 'start-indexing') {
+                    const onUpdate = (update: any) => ws.send(JSON.stringify(update));
+                    runIndex(agentContext, onUpdate);
                 } else {
+                    if (!(await isIndexUpToDate(activeRepo))) {
+                        ws.send(JSON.stringify({ type: 'index-required' }));
+                        return;
+                    }
+
                     const query = data.content;
                     conversationHistory.push({ role: 'user', content: query });
-
                     const contextStr = await getChatContext(query, agentContext);
                     const prompt = constructChatPrompt(conversationHistory, contextStr);
                     const stream = await aiProvider.invoke(prompt, true);
-                    
                     ws.send(JSON.stringify({ type: 'start' }));
-
                     const reader = stream.getReader();
                     const decoder = new TextDecoder();
                     let fullResponse = '';
@@ -218,7 +274,6 @@ export async function startServer() {
                         if (done) break;
                         fullResponse += decoder.decode(value, { stream: true });
                     }
-                    
                     let accumulatedText = '';
                     const responseArray = JSON.parse(fullResponse);
                     for (const chunk of responseArray) {
@@ -228,7 +283,6 @@ export async function startServer() {
                             accumulatedText += text;
                         }
                     }
-                    
                     conversationHistory.push({ role: 'assistant', content: accumulatedText });
                     ws.send(JSON.stringify({ type: 'end' }));
                 }
@@ -247,10 +301,7 @@ export async function startServer() {
 export function stopServer() {
     return new Promise<void>((resolve) => {
         if (serverInstance) {
-            serverInstance.close(() => {
-                serverInstance = null;
-                resolve();
-            });
+            serverInstance.close(() => { serverInstance = null; resolve(); });
         } else {
             resolve();
         }

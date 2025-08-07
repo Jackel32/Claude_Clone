@@ -20,6 +20,7 @@ import {
   handleTaskCommand,
   promptForFile
 } from './commands/handlers/index.js';
+import { log } from 'console';
 
 /**
  * The main application loop that presents the interactive menu.
@@ -56,7 +57,7 @@ export async function startMainMenu(): Promise<void> {
     throw new Error(`API key for provider "${activeProviderName}" not found. Please set it in your config or as an environment variable.`);
   }
 
-  const aiProvider = createAIProvider(profile, apiKey);
+  const aiProvider = createAIProvider(profile, apiKey, logger);
 
   const baseContext: Omit<AppContext, 'args'> = {
     profile,

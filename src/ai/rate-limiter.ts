@@ -1,71 +1,57 @@
 /**
  * @file src/ai/rate-limiter.ts
- * @description A sophisticated rate limiter that handles RPM and TPM with intelligent waiting.
+ * @description A robust, professional-grade rate limiter using the 'bottleneck' library.
  */
+import Bottleneck from 'bottleneck';
+import { Logger } from 'pino';
 
-// A simple approximation: 1 token ~ 4 characters
 const CHARS_PER_TOKEN = 4;
 
 function estimateTokens(text: string): number {
+    if (!text) return 1;
     return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
 export class RateLimiter {
-    private rpm: number;
-    private tpm: number;
-    private requestTimestamps: number[] = [];
-    private tokenTimestamps: { timestamp: number, count: number }[] = [];
+    // We will now have two separate, independent limiters.
+    private rpmLimiter: Bottleneck;
+    private tpmLimiter: Bottleneck;
 
-    constructor(requestsPerMinute: number, tokensPerMinute: number) {
-        this.rpm = requestsPerMinute;
-        this.tpm = tokensPerMinute;
+    constructor(requestsPerMinute: number, tokensPerMinute: number, logger: Logger) {
+        // This limiter only cares about the number of requests per minute.
+        this.rpmLimiter = new Bottleneck({
+            reservoir: requestsPerMinute,
+            reservoirRefreshAmount: requestsPerMinute,
+            reservoirRefreshInterval: 60 * 1000,
+            maxConcurrent: 5,
+        });
+
+        // This limiter only cares about the number of tokens per minute.
+        this.tpmLimiter = new Bottleneck({
+            reservoir: tokensPerMinute,
+            reservoirRefreshAmount: tokensPerMinute,
+            reservoirRefreshInterval: 60 * 1000,
+        });
+
+        // Attach debug event listeners
+        this.rpmLimiter.on('debug', (msg, data) => logger.debug(`RPM Limiter: ${msg}`));
+        this.tpmLimiter.on('debug', (msg, data) => logger.debug(`TPM Limiter: ${msg}`));
     }
 
-    async acquire(prompt: string): Promise<void> {
-        const requiredTokens = estimateTokens(prompt);
-
-        while (true) {
-            const now = Date.now();
-            const oneMinuteAgo = now - 60000;
-
-            // Prune old timestamps
-            this.requestTimestamps = this.requestTimestamps.filter(ts => ts > oneMinuteAgo);
-            this.tokenTimestamps = this.tokenTimestamps.filter(entry => entry.timestamp > oneMinuteAgo);
-
-            const currentRpm = this.requestTimestamps.length;
-            const currentTpm = this.tokenTimestamps.reduce((sum, entry) => sum + entry.count, 0);
-
-            const rpmOk = currentRpm < this.rpm;
-            const tpmOk = (currentTpm + requiredTokens) <= this.tpm;
-
-            if (rpmOk && tpmOk) {
-                this.requestTimestamps.push(now);
-                this.tokenTimestamps.push({ timestamp: now, count: requiredTokens });
-                return; // Permission granted
-            }
-
-            // Calculate how long to wait
-            let rpmWait = 0;
-            if (!rpmOk) {
-                rpmWait = this.requestTimestamps[0] - oneMinuteAgo;
-            }
-            
-            let tpmWait = 0;
-            if (!tpmOk) {
-                // Find how far back we need to go to free up enough tokens
-                let tokensToFree = (currentTpm + requiredTokens) - this.tpm;
-                let freedTokens = 0;
-                for (const entry of this.tokenTimestamps) {
-                    freedTokens += entry.count;
-                    if (freedTokens >= tokensToFree) {
-                        tpmWait = entry.timestamp - oneMinuteAgo;
-                        break;
-                    }
-                }
-            }
-
-            const waitTime = Math.max(rpmWait, tpmWait);
-            await new Promise(resolve => setTimeout(resolve, waitTime + 100)); // +100ms buffer
-        }
+    /**
+     * Schedules a function to be executed when both RPM and TPM rate limits allow.
+     * @param func The async function to execute (e.g., an API call).
+     * @param prompt The prompt string to estimate token weight.
+     * @returns The result of the executed function.
+     */
+    schedule<T>(func: () => Promise<T>, prompt: string): Promise<T> {
+        const tokens = estimateTokens(prompt);
+        
+        // This is the new, correct nested scheduling pattern.
+        return this.tpmLimiter.schedule({ weight: tokens }, () => {
+            // Once the token limit has a slot, we then schedule based on the request limit.
+            // The request limit always has a weight of 1.
+            return this.rpmLimiter.schedule({ weight: 1 }, func);
+        });
     }
 }

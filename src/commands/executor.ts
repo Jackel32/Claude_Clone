@@ -37,7 +37,7 @@ export async function executeCommand(args: any): Promise<void> {
     throw new Error(`API key for provider "${activeProviderName}" not found.`);
   }
 
-  const aiProvider = createAIProvider(profile, apiKey);
+  const aiProvider = createAIProvider(profile, apiKey, logger);
 
   const context: AppContext = {
     profile,

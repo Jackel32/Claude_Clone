@@ -10,36 +10,96 @@ document.addEventListener('DOMContentLoaded', () => {
     const refactorBtn = document.getElementById('refactor-btn');
     const testBtn = document.getElementById('test-btn');
     const gitDiffBtn = document.getElementById('git-diff-btn');
-
-    // --- REPO SELECTOR LOGIC (NEW) ---
+    const reportBtn = document.getElementById('report-btn');
     const repoSelectorOverlay = document.getElementById('repo-selector-overlay');
     const appContainer = document.getElementById('app-container');
     const repoList = document.getElementById('repo-list');
+    const localList = document.getElementById('local-list');
     const cloneForm = document.getElementById('clone-form');
     const repoUrlInput = document.getElementById('repo-url');
     const repoPatInput = document.getElementById('repo-pat');
+    const indexingModal = document.getElementById('indexing-modal');
+    const indexNowBtn = document.getElementById('index-now-btn');
+    const indexCancelBtn = document.getElementById('index-cancel-btn');
 
+    // --- STATE MANAGEMENT ---
+    const logHistory = [];
+    let tabCounter = 0;
+    let assistantMessageElement = null;
+
+    // --- INITIALIZATION ---
+    initializeRepoSelector();
+    initFixedTabs();
+
+    // --- WEBSOCKET SETUP ---
+    const socket = new WebSocket(`ws://${window.location.host}`);
+    socket.onopen = () => console.log('WebSocket connection established.');
+    socket.onmessage = handleSocketMessage;
+
+    // --- EVENT LISTENERS ---
+    chatForm.addEventListener('submit', handleChatSubmit);
+    if(agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
+    if(addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
+    if(refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
+    if(testBtn) testBtn.addEventListener('click', showTestDialog);
+    if(gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
+    if(reportBtn) reportBtn.addEventListener('click', showReport);
+    
+    indexNowBtn.addEventListener('click', () => {
+        indexingModal.classList.add('hidden');
+        const panel = createTab('Indexing Project');
+        panel.innerHTML = '<h3>Indexing codebase...</h3>';
+        setTabStatus(panel, 'running'); // Start the spinner
+        socket.send(JSON.stringify({ type: 'start-indexing' }));
+    });
+
+    indexCancelBtn.addEventListener('click', () => {
+        indexingModal.classList.add('hidden');
+    });
+
+    // --- REPO SELECTOR LOGIC ---
     async function initializeRepoSelector() {
-        const response = await fetch('/api/repos');
-        const repos = await response.json();
-        repoList.innerHTML = '';
-        if (repos.length > 0) {
-            repos.forEach(repoName => {
-                const li = document.createElement('li');
-                li.textContent = repoName;
-                li.onclick = () => selectRepo(repoName);
-                repoList.appendChild(li);
-            });
-        } else {
-            repoList.innerHTML = '<li>No repositories cloned yet.</li>';
+        try {
+            const response = await fetch('/api/projects');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const projects = await response.json();
+            if (projects.error) throw new Error(projects.error);
+
+            repoList.innerHTML = '';
+            if (projects.cloned && projects.cloned.length > 0) {
+                projects.cloned.forEach(repo => {
+                    const li = document.createElement('li');
+                    li.textContent = repo.name;
+                    li.onclick = () => selectProject(repo.path);
+                    repoList.appendChild(li);
+                });
+            } else {
+                repoList.innerHTML = '<li>No repositories cloned yet.</li>';
+            }
+
+            localList.innerHTML = '';
+            if (projects.local && projects.local.length > 0) {
+                projects.local.forEach(project => {
+                    const li = document.createElement('li');
+                    li.textContent = project.name;
+                    li.onclick = () => selectProject(project.path);
+                    localList.appendChild(li);
+                });
+            } else {
+                localList.innerHTML = '<li>No local projects found in the mounted directory.</li>';
+            }
+        } catch (error) {
+            console.error("Failed to initialize repo selector:", error);
+            repoList.innerHTML = `<li>Error: ${error.message}</li>`;
+            localList.innerHTML = `<li>Check server logs for details.</li>`;
         }
     }
 
-    async function selectRepo(repoName) {
-        await fetch('/api/repos/active', {
+    async function selectProject(projectPath) {
+        await fetch('/api/set-active-project', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repoName }),
+            body: JSON.stringify({ projectPath }),
         });
         repoSelectorOverlay.classList.add('hidden');
         appContainer.classList.remove('hidden');
@@ -49,158 +109,182 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const repoUrl = repoUrlInput.value;
         const pat = repoPatInput.value;
-        
         const cloneButton = cloneForm.querySelector('button');
         cloneButton.textContent = 'Cloning...';
         cloneButton.disabled = true;
-
-        const response = await fetch('/api/repos/clone', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ repoUrl, pat }),
-        });
-        const result = await response.json();
-        
-        if (response.ok) {
-            await selectRepo(result.repoName);
-        } else {
-            alert(`Error cloning repository: ${result.error}`);
-            cloneButton.textContent = 'Clone';
-            cloneButton.disabled = false;
+        try {
+            const response = await fetch('/api/repos/clone', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repoUrl, pat }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Unknown cloning error');
+            
+            await initializeRepoSelector();
+            const newRepoResponse = await fetch('/api/projects');
+            const projects = await newRepoResponse.json();
+            const newRepo = projects.cloned.find(r => r.name === result.repoName);
+            if (newRepo) {
+                await selectProject(newRepo.path);
+            } else {
+                throw new Error('Could not find newly cloned repository.');
+            }
+        } catch (error) {
+             alert(`Error cloning repository: ${error.message}`);
+             cloneButton.textContent = 'Clone';
+             cloneButton.disabled = false;
         }
     });
 
-    initializeRepoSelector(); // Run on page load
-
     // --- TAB MANAGEMENT ---
-    let tabCounter = 0;
-
     function createTab(title, makeActive = true) {
         tabCounter++;
         const tabId = `tab-${tabCounter}`;
-
         const tab = document.createElement('div');
         tab.className = 'tab';
         tab.dataset.tabId = tabId;
-        
         const titleSpan = document.createElement('span');
         titleSpan.textContent = title;
         tab.appendChild(titleSpan);
-
         const closeBtn = document.createElement('span');
         closeBtn.className = 'close-tab';
         closeBtn.innerHTML = '&times;';
-        closeBtn.onclick = (e) => {
-            e.stopPropagation();
-            closeTab(tabId);
-        };
+        closeBtn.onclick = (e) => { e.stopPropagation(); closeTab(tabId); };
         tab.appendChild(closeBtn);
+        const spinner = document.createElement('div');
+        spinner.className = 'tab-spinner';
+        spinner.style.display = 'none';
+        tab.appendChild(spinner);
         tabBar.appendChild(tab);
         tab.onclick = () => switchToTab(tabId);
-
         const panel = document.createElement('div');
         panel.className = 'tab-panel';
         panel.dataset.tabId = tabId;
         tabPanels.appendChild(panel);
-
         if (makeActive) {
             switchToTab(tabId);
         }
         return panel;
     }
-
     function switchToTab(tabId) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        const tabToActivate = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
-        if (tabToActivate) tabToActivate.classList.add('active');
-        
+        document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.classList.add('active');
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        const panelToActivate = document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`);
-        if (panelToActivate) panelToActivate.classList.add('active');
+        document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`)?.classList.add('active');
     }
-
     function closeTab(tabId) {
-        if (tabId === 'home') return;
+        if (['home', 'logs'].includes(tabId)) return;
         document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.remove();
         document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`)?.remove();
         switchToTab('home');
     }
-    
-    function initHomeTab() {
+
+    function setTabStatus(panel, status) {
+        const tabId = panel.dataset.tabId;
+        const tab = document.querySelector(`.tab[data-tab-id="${tabId}"]`);
+        if (!tab) return;
+
+        const spinner = tab.querySelector('.tab-spinner');
+        const closeBtn = tab.querySelector('.close-tab');
+
+        if (status === 'running') {
+            if (spinner) spinner.style.display = 'block';
+            if (closeBtn) closeBtn.style.display = 'none';
+        } else { // 'finished' or 'error'
+            if (spinner) spinner.style.display = 'none';
+            if (closeBtn) closeBtn.style.display = 'flex';
+        }
+    }
+
+    function initFixedTabs() {
+        tabBar.innerHTML = '';
+
         const homeTab = document.createElement('div');
         homeTab.className = 'tab active';
         homeTab.dataset.tabId = 'home';
         homeTab.textContent = 'Chat';
         homeTab.onclick = () => switchToTab('home');
         tabBar.appendChild(homeTab);
+
+        const logsTab = document.createElement('div');
+        logsTab.className = 'tab';
+        logsTab.dataset.tabId = 'logs';
+        logsTab.textContent = 'Logs';
+        logsTab.onclick = () => switchToTab('logs');
+        tabBar.appendChild(logsTab);
+
+        const logsPanel = document.createElement('div');
+        logsPanel.className = 'tab-panel';
+        logsPanel.dataset.tabId = 'logs';
+        const pre = document.createElement('pre');
+        pre.style.whiteSpace = 'pre-wrap';
+        logsPanel.appendChild(pre);
+        tabPanels.appendChild(logsPanel);
     }
-    initHomeTab();
+    initFixedTabs();
 
-    // --- WEBSOCKET & MESSAGE HANDLING ---
-    const socket = new WebSocket(`ws://${window.location.host}`);
-    let assistantMessageElement = null;
-
-    socket.onopen = () => console.log('WebSocket connection established.');
-    
-    socket.onmessage = (event) => {
+    // --- MESSAGE HANDLING ---
+    function handleSocketMessage(event) {
         const message = JSON.parse(event.data);
-        displayMessage(message);
-    };
-
-    function displayMessage(message) {
-        let el;
+        const messageType = message.type;
+        if (messageType === 'index-required') {
+            indexingModal.classList.remove('hidden');
+            return;
+        }
+        if (['start', 'chunk', 'end'].includes(messageType)) {
+            handleChatMessage(message);
+        } else {
+            handleLogMessage(message);
+        }
+    }
+    function handleChatMessage(message) {
         switch (message.type) {
-            case 'thought':
-                el = createMessageElement('assistant');
-                el.firstChild.textContent = `Thought: ${message.content}`;
-                break;
-            case 'action':
-                el = createMessageElement('assistant');
-                el.firstChild.textContent = `Action: ${message.content}`;
-                break;
-            case 'observation':
-                el = createMessageElement('assistant');
-                el.firstChild.innerHTML = `<strong>Observation:</strong><pre>${message.content}</pre>`;
-                break;
-            case 'finish':
-                el = createMessageElement('assistant');
-                el.style.backgroundColor = '#1e8e3e';
-                el.firstChild.textContent = `✅ Task Complete: ${message.content}`;
-                break;
-            case 'start':
-                assistantMessageElement = createMessageElement('assistant');
-                chatWindow.prepend(assistantMessageElement);
-                return;
-            case 'chunk':
-                if (assistantMessageElement) assistantMessageElement.firstChild.textContent += message.content;
-                return;
-            case 'end':
-                assistantMessageElement = null;
-                return;
-            case 'error':
-                el = createMessageElement('assistant', 'error');
-                el.firstChild.textContent = `Error: ${message.content}`;
-                break;
+            case 'start': assistantMessageElement = createMessageElement('assistant'); chatWindow.prepend(assistantMessageElement); break;
+            case 'chunk': if (assistantMessageElement) assistantMessageElement.firstChild.textContent += message.content; break;
+            case 'end': assistantMessageElement = null; break;
+        }
+    }
+    function handleLogMessage(message) {
+        let logText = '';
+        switch (message.type) {
+            case 'thought': logText = `[THOUGHT] ${message.content}`; break;
+            case 'action': logText = `[ACTION] ${message.content}`; break;
+            case 'observation': logText = `[OBSERVATION]\n${message.content}`; break;
+            case 'finish': logText = `✅ [FINISH] ${message.content}`; break;
+            case 'error': logText = `❌ [ERROR] ${message.content}`; break;
+            case 'stream-start': logText = '\n--- AI RESPONSE ---\n'; break;
+            case 'stream-chunk': logText = message.content; break;
+            case 'stream-end': logText = ''; break;
             default: return;
         }
-        if (el) chatWindow.prepend(el);
+
+        const activePanel = document.querySelector('.tab-panel.active');
+        if (message.type === 'finish' || message.type === 'error') {
+            if(activePanel) setTabStatus(activePanel, 'finished');
+        }
+
+        logHistory.push(logText);
+        const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
+        if (logsPanel) {
+            logsPanel.textContent = logHistory.join(message.type === 'stream-chunk' ? '' : '\n\n');
+            logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
+        }
+        if (message.type !== 'finish' && message.type !== 'error') {
+            switchToTab('logs');
+        }
     }
-    
-    // --- CHAT FORM LOGIC ---
-    chatForm.addEventListener('submit', (e) => {
+    function handleChatSubmit(e) {
         e.preventDefault();
         const messageText = messageInput.value;
         if (messageText.trim() === '') return;
-
         switchToTab('home');
         const userMessage = createMessageElement('user');
         userMessage.firstChild.textContent = messageText;
         chatWindow.prepend(userMessage);
-        
         socket.send(JSON.stringify({ type: 'chat', content: messageText }));
         messageInput.value = '';
-    });
-
+    }
     function createMessageElement(role, type = 'normal') {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', role);
@@ -210,150 +294,59 @@ document.addEventListener('DOMContentLoaded', () => {
         return messageDiv;
     }
 
-    // --- EVENT LISTENERS FOR ACTION BUTTONS ---
-    if(agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
-    if(addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
-    if(refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
-    if(testBtn) testBtn.addEventListener('click', showTestDialog);
-    if(gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
-
-    // --- GENERIC HELPERS ---
-    async function applyChanges(filePath, newContent, panelToClose) {
-        try {
-            const response = await fetch('/api/apply-changes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, newContent }),
-            });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            closeTab(panelToClose.dataset.tabId);
-            alert(`Changes applied successfully to ${filePath}`);
-        } catch (error) {
-            panelToClose.innerHTML = `Error applying changes: ${error.message}`;
-        }
-    }
-
-    function renderFileTree(node, onFileSelect) {
-        const li = document.createElement('li');
-        const itemSpan = document.createElement('span');
-        itemSpan.className = 'tree-item';
-        itemSpan.textContent = node.name;
-        li.appendChild(itemSpan);
-
-        if (node.type === 'folder') {
-            li.className = 'tree-folder collapsed';
-            itemSpan.onclick = () => li.classList.toggle('collapsed');
-            
-            const childrenUl = document.createElement('ul');
-            childrenUl.className = 'file-tree';
-            if (node.children) {
-                // The recursive call correctly passes the onFileSelect callback down
-                node.children.forEach(child => {
-                    childrenUl.appendChild(renderFileTree(child, onFileSelect));
-                });
-            }
-            li.appendChild(childrenUl);
-        } else {
-            li.className = 'tree-file';
-            // The click handler is attached directly to the file item
-            li.onclick = () => onFileSelect(node.path);
-        }
-        return li;
-    }
-
-    async function showGenericFileDialog(title, onFileSelect) {
-        const panel = createTab(title);
-        panel.innerHTML = 'Loading files...';
-        try {
-            const response = await fetch('/api/file-tree');
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const treeData = await response.json();
-            
-            const treeRoot = document.createElement('ul');
-            treeRoot.className = 'file-tree';
-            if (treeData.children) {
-                treeData.children.forEach(node => {
-                    treeRoot.appendChild(renderFileTree(node, (filePath) => onFileSelect(filePath, panel)));
-                });
-            }
-            
-            panel.innerHTML = `<h3>${title}</h3>`;
-            panel.appendChild(treeRoot);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
-    }
-
     // --- ACTION WORKFLOWS ---
     function showAgentDialog() {
         const task = prompt("What task would you like the AI agent to perform?");
         if (task && task.trim()) {
-            switchToTab('home');
-            chatWindow.innerHTML = '';
+            switchToTab('logs');
+            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
+            if(logsPanel) logsPanel.textContent = '';
+            logHistory.length = 0;
             socket.send(JSON.stringify({ type: 'agent-task', task }));
-            const userMessage = createMessageElement('user');
-            userMessage.firstChild.textContent = `Task: ${task}`;
-            chatWindow.prepend(userMessage);
         }
     }
-
-    function showAddDocsDialog() {
-        showGenericFileDialog('Add Docs: Select a File', onFileSelectForDocs);
+    function showReport() {
+        const panel = createTab('Project Report');
+        panel.innerHTML = '<h3>Generating project report...</h3>';
+        setTabStatus(panel, 'running'); // Start the spinner
+        socket.send(JSON.stringify({ type: 'get-report' }));
     }
+    function showAddDocsDialog() { showGenericFileDialog('Add Docs', onFileSelectForDocs); }
     async function onFileSelectForDocs(filePath, panel) {
         panel.innerHTML = '<h3>Generating Documentation...</h3>';
         try {
-            const response = await fetch('/api/add-docs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath }),
-            });
+            const response = await fetch('/api/add-docs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath }) });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { patch, newContent } = await response.json();
             displayDiff(panel, patch, `Docs: ${filePath.split('/').pop().split('\\').pop()}`);
-            
             const actions = document.createElement('div');
+            actions.className = 'actions';
             const applyBtn = document.createElement('button');
             applyBtn.textContent = 'Apply Changes';
             applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
             actions.appendChild(applyBtn);
             panel.appendChild(actions);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-
-    function showRefactorDialog() {
-        showGenericFileDialog('Refactor: Select a File', onFileSelectForRefactor);
-    }
+    function showRefactorDialog() { showGenericFileDialog('Refactor File', onFileSelectForRefactor); }
     async function onFileSelectForRefactor(filePath, panel) {
         const promptText = prompt(`Enter refactoring instructions for ${filePath}:`);
-        if (!promptText || !promptText.trim()) {
-            closeTab(panel.dataset.tabId);
-            return;
-        }
+        if (!promptText || !promptText.trim()) { closeTab(panel.dataset.tabId); return; }
         panel.innerHTML = '<h3>Refactoring file...</h3>';
         try {
-            const response = await fetch('/api/refactor', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, prompt: promptText }),
-            });
+            const response = await fetch('/api/refactor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath, prompt: promptText }) });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { patch, newContent } = await response.json();
             displayDiff(panel, patch, `Refactor: ${filePath.split('/').pop().split('\\').pop()}`);
-
             const actions = document.createElement('div');
+            actions.className = 'actions';
             const applyBtn = document.createElement('button');
             applyBtn.textContent = 'Apply Changes';
             applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
             actions.appendChild(applyBtn);
             panel.appendChild(actions);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-    
     async function showTestDialog() {
         const panel = createTab('Generate Test');
         panel.innerHTML = 'Finding testable files...';
@@ -361,42 +354,27 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/testable-file-tree');
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const treeData = await response.json();
-            
             if (!treeData || !treeData.children || treeData.children.length === 0) {
-                panel.innerHTML = '<h3>No files with testable functions found.</h3>';
-                return;
+                panel.innerHTML = '<h3>No files with testable functions found.</h3>'; return;
             }
-            
             const treeRoot = document.createElement('ul');
             treeRoot.className = 'file-tree';
             treeData.children.forEach(node => {
                 treeRoot.appendChild(renderFileTree(node, (filePath) => onFileSelectForTest(filePath, panel)));
             });
-            
             panel.innerHTML = `<h3>Generate Test: Select a File</h3>`;
             panel.appendChild(treeRoot);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-
-    // This function now fetches the list of symbols
     async function onFileSelectForTest(filePath, panel) {
         panel.innerHTML = '<h3>Loading functions from file...</h3>';
         try {
-            const response = await fetch('/api/list-symbols', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath }),
-            });
+            const response = await fetch('/api/list-symbols', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath }) });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const symbols = await response.json();
-
             if (symbols.length === 0) {
-                panel.innerHTML = `<h3>No exportable functions or classes found in ${filePath}.</h3>`;
-                return;
+                panel.innerHTML = `<h3>No functions or classes found in ${filePath}.</h3>`; return;
             }
-
             const symbolList = document.createElement('ul');
             symbols.forEach(symbol => {
                 const li = document.createElement('li');
@@ -404,50 +382,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.onclick = () => onSymbolSelectForTest(filePath, symbol, panel);
                 symbolList.appendChild(li);
             });
-            
             panel.innerHTML = `<h3>Select a function or class to test:</h3>`;
             panel.appendChild(symbolList);
-
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-
     async function onSymbolSelectForTest(filePath, symbol, panel) {
         const framework = prompt(`Enter the testing framework for "${symbol}":`, 'jest');
-        if (!framework || !framework.trim()) {
-            closeTab(panel.dataset.tabId);
-            return;
-        }
-
+        if (!framework || !framework.trim()) { closeTab(panel.dataset.tabId); return; }
         panel.innerHTML = `<h3>Generating ${framework} test for "${symbol}"...</h3>`;
         try {
-            const response = await fetch('/api/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, symbol, framework }),
-            });
+            const response = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath, symbol, framework }) });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { newContent } = await response.json();
-            
             document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = `Test: ${symbol}`;
             panel.innerHTML = `<h3>Generated Test for ${symbol}</h3><pre><code>${newContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
-
             const actions = document.createElement('div');
+            actions.className = 'actions';
             const saveBtn = document.createElement('button');
             saveBtn.textContent = 'Save to File';
             saveBtn.onclick = () => {
-                const defaultPath = filePath.replace('.ts', '.test.ts');
+                const defaultPath = filePath.replace('.ts', '.test.ts').replace('.py', '_test.py');
                 const outputPath = prompt(`Enter path to save test file:`, defaultPath);
                 if (outputPath) applyChanges(outputPath, newContent, panel);
             };
             actions.appendChild(saveBtn);
             panel.appendChild(actions);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-
     async function showGitDiffDialog() {
         const panel = createTab('Analyze Commits');
         panel.innerHTML = '<h3>Loading commit history...</h3>';
@@ -455,33 +416,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch('/api/commits');
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const commits = await response.json();
-            
             if (commits.length === 0) {
-                panel.innerHTML = '<h3>No commits found in this repository.</h3>';
-                return;
+                panel.innerHTML = '<h3>No commits found in this repository.</h3>'; return;
             }
-
             const commitList = document.createElement('ul');
             commits.forEach(commitLine => {
                 const [hash, author, date, msg] = commitLine.split('|');
                 const li = document.createElement('li');
                 li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
-                // Store the hash in a data attribute instead of an inline onclick
                 li.dataset.hash = hash;
                 commitList.appendChild(li);
             });
             panel.innerHTML = '<h3>Select the START commit (older):</h3>';
             panel.appendChild(commitList);
-
-            // After rendering, attach the click handlers
             panel.querySelectorAll('li').forEach(li => {
                 li.onclick = () => onCommitSelect_Start(li.dataset.hash, commits, panel);
             });
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
-
     function onCommitSelect_Start(startCommit, commits, panel) {
         panel.innerHTML = '<h3>Select the END commit (newer):</h3>';
         const commitList = document.createElement('ul');
@@ -489,79 +441,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const [hash, author, date, msg] = commitLine.split('|');
             const li = document.createElement('li');
             li.textContent = `${hash} - ${msg.trim()} (${author}, ${date})`;
-            // Store the hash in a data attribute
             li.dataset.hash = hash;
             commitList.appendChild(li);
         });
         panel.appendChild(commitList);
-
-        // After rendering, attach the new click handlers
         panel.querySelectorAll('li').forEach(li => {
             li.onclick = () => onCommitSelect_End(startCommit, li.dataset.hash, panel);
         });
     }
-    
-    async function onCommitSelect_End(startCommit, endCommit, panel) {
-        panel.innerHTML = '<h3>Generating Diff and AI Analysis...</h3>';
-        try {
-            const response = await fetch('/api/diff', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ startCommit, endCommit }),
-            });
-
-            // --- NEW DEBUGGING LOGS ---
-            console.log('--- DEBUG: Raw response from server ---', response);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('--- DEBUG: Server returned an error ---', errorText);
-                throw new Error(`Server error: ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            console.log('--- DEBUG: Parsed JSON data from server ---', data);
-            
-            const { patch, analysis } = data;
-            console.log('--- DEBUG: Value of analysis variable ---', analysis);
-            console.log('--- DEBUG: Type of analysis variable ---', typeof analysis);
-
-            const analysisElement = document.createElement('div');
-            analysisElement.className = 'ai-analysis';
-            
-            const analysisHtml = (typeof analysis === 'string' && analysis) ? analysis.replace(/\n/g, '<br>') : 'No analysis provided.';
-            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysisHtml}</p>`;
-            
-            displayDiff(panel, patch, `Diff: ${startCommit.substring(0,7)}..${endCommit.substring(0,7)}`);
-            
-            panel.prepend(analysisElement);
-
-        } catch (e) {
-            console.error('--- DEBUG: Caught an error in onCommitSelect_End ---', e);
-            panel.innerHTML = `Error: ${e.message}`;
-        }
-    }
-
-    function displayDiff(panel, patch, title) {
-        document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = title;
-        
-        const diffJson = Diff2Html.parse(patch);
-        const diffHtml = Diff2Html.html(diffJson, {
-            drawFileList: false,
-            outputFormat: 'side-by-side',
-            matching: 'lines',
-            colorScheme: 'dark'
-        });
-
-        // This prevents an empty diff box from showing if there are no changes
-        if (!diffHtml) {
-             panel.innerHTML = `<h3>${title}</h3><p>No changes detected.</p>`;
-             return;
-        }
-
-        panel.innerHTML = `<h3>${title}</h3>` + diffHtml;
-    }
-
     async function onCommitSelect_End(startCommit, endCommit, panel) {
         panel.innerHTML = '<h3>Generating Diff and AI Analysis...</h3>';
         try {
@@ -571,24 +458,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ startCommit, endCommit }),
             });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            
-            // Get both the patch and the analysis from the response
             const { patch, analysis } = await response.json();
-            
-            // --- NEW: Display the AI analysis ---
             const analysisElement = document.createElement('div');
             analysisElement.className = 'ai-analysis';
-            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysis.replace(/\n/g, '<br>')}</p>`;
-            // ------------------------------------
-
-            // Display the diff using the existing helper
+            const analysisHtml = (typeof analysis === 'string' && analysis) ? analysis.replace(/\n/g, '<br>') : 'No analysis provided.';
+            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysisHtml}</p>`;
             displayDiff(panel, patch, `Diff: ${startCommit.substring(0,7)}..${endCommit.substring(0,7)}`);
-            
-            // Prepend the analysis so it appears above the diff
             panel.prepend(analysisElement);
-
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
+    }
+    function displayDiff(panel, patch, title) {
+        document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = title;
+        const diffJson = Diff2Html.parse(patch);
+        const diffHtml = Diff2Html.html(diffJson, {
+            drawFileList: false,
+            outputFormat: 'side-by-side',
+            matching: 'lines',
+            colorScheme: 'dark'
+        });
+        if (!diffHtml) {
+            panel.innerHTML = `<h3>${title}</h3><p>No changes detected.</p>`;
+            return;
         }
+        panel.innerHTML = `<h3>${title}</h3>` + diffHtml;
     }
 });
