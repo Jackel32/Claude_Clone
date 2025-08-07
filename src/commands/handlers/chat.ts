@@ -8,7 +8,7 @@ import * as path from 'path';
 import { getChatContext } from '../../core/chat-core.js';
 import { constructChatPrompt, processStream } from '../../ai/index.js';
 import { AppContext, ChatMessage } from '../../types.js';
-import { isIndexUpToDate } from '../../codebase/indexer.js';
+import { Indexer } from '../../codebase/indexer.js';
 import { handleIndexCommand } from './index-command.js';
 import inquirer from 'inquirer';
 
@@ -20,7 +20,10 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
   const projectRoot = path.resolve(args.path || profile.cwd || '.');
   const projectContext = { ...context, args: { ...args, path: projectRoot } };
 
-  if (!(await isIndexUpToDate(projectRoot))) {
+  const indexer = new Indexer(projectRoot);
+  await indexer.init(); // Load the cache into memory once
+
+  if (!(await indexer.isIndexUpToDate())) {
     logger.warn(`Project index is incomplete or out-of-date for: ${projectRoot}`);
     const { shouldIndex } = await inquirer.prompt([{
       type: 'confirm',

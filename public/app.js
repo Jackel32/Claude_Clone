@@ -349,6 +349,27 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Unmodified functions from here down...
     function showAddDocsDialog() { showGenericFileDialog('Add Docs', onFileSelectForDocs); }
+
+    function showGenericFileDialog(title, onFileSelectCallback) {
+        const panel = createTab(title); // Assuming createTab exists
+        panel.innerHTML = `<h3>${title}: Select a file...</h3>`;
+
+        // This part is crucial: you need to provide a way for the user
+        // to select a file, and then call onFileSelectCallback(selectedFilePath, panel)
+        // once a file is chosen.
+
+        // For demonstration, let's simulate a file selection with a prompt for now:
+        const filePath = prompt(`Enter the path to the file for ${title}:`);
+        if (filePath && filePath.trim()) {
+            onFileSelectCallback(filePath.trim(), panel);
+        } else {
+            panel.innerHTML = `${title} cancelled.`;
+        }
+
+        // In a real application, this would involve rendering a file tree,
+        // input fields, or a file picker UI.
+    }
+
     async function onFileSelectForDocs(filePath, panel) {
         panel.innerHTML = '<h3>Generating Documentation...</h3>';
         try {
@@ -366,12 +387,20 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
     function showRefactorDialog() { showGenericFileDialog('Refactor File', onFileSelectForRefactor); }
+
     async function onFileSelectForRefactor(filePath, panel) {
         const promptText = prompt(`Enter refactoring instructions for ${filePath}:`);
-        if (!promptText || !promptText.trim()) { closeTab(panel.dataset.tabId); return; }
-        panel.innerHTML = '<h3>Refactoring file...</h3>';
+        if (!promptText || !promptText.trim()) {
+            panel.innerHTML = 'Refactoring cancelled.';
+            return;
+        }
+        panel.innerHTML = '<h3>Applying Refactoring...</h3>';
         try {
-            const response = await fetch('/api/refactor', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath, prompt: promptText }) });
+            const response = await fetch('/api/refactor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath, prompt: promptText })
+            });
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const { patch, newContent } = await response.json();
             displayDiff(panel, patch, `Refactor: ${filePath.split('/').pop().split('\\').pop()}`);
@@ -382,7 +411,9 @@ document.addEventListener('DOMContentLoaded', () => {
             applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
             actions.appendChild(applyBtn);
             panel.appendChild(actions);
-        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
+        }
     }
     async function showTestDialog() {
         const panel = createTab('Generate Test');
@@ -404,25 +435,44 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
     async function onFileSelectForTest(filePath, panel) {
-        panel.innerHTML = '<h3>Loading functions from file...</h3>';
+        const symbol = prompt(`Enter the symbol (function/class name) for which to generate tests in ${filePath}:`);
+        if (!symbol || !symbol.trim()) {
+            panel.innerHTML = 'Test generation cancelled: Symbol not provided.';
+            return;
+        }
+        const framework = prompt(`Enter the testing framework (e.g., 'jest', 'mocha', 'pytest') for ${filePath}:`);
+        // You might want to add validation or default for framework
+        
+        panel.innerHTML = '<h3>Generating Test...</h3>';
         try {
-            const response = await fetch('/api/list-symbols', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath }) });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const symbols = await response.json();
-            if (symbols.length === 0) {
-                panel.innerHTML = `<h3>No functions or classes found in ${filePath}.</h3>`; return;
-            }
-            const symbolList = document.createElement('ul');
-            symbols.forEach(symbol => {
-                const li = document.createElement('li');
-                li.textContent = symbol;
-                li.onclick = () => onSymbolSelectForTest(filePath, symbol, panel);
-                symbolList.appendChild(li);
+            const response = await fetch('/api/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath, symbol, framework })
             });
-            panel.innerHTML = `<h3>Select a function or class to test:</h3>`;
-            panel.appendChild(symbolList);
-        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const { newContent } = await response.json();
+            
+            // For tests, you might just display the new content or offer to save it
+            // If the server returns a patch, you'd use displayDiff similar to add-docs/refactor
+            panel.innerHTML = `<h3>Generated Test Content for ${filePath.split('/').pop().split('\\').pop()}:</h3><pre>${newContent}</pre>`;
+            
+            const actions = document.createElement('div');
+            actions.className = 'actions';
+            const applyBtn = document.createElement('button');
+            applyBtn.textContent = 'Apply Changes (Save Test File)';
+            // You might want to suggest a new filename for the test file (e.g., originalFile.test.ts)
+            // For simplicity, this example just applies to the original file, which might not be desired for tests.
+            // A more robust solution would let the user specify the test file path.
+            applyBtn.onclick = () => applyChanges(filePath.replace(/\.([a-zA-Z0-9]+)$/, '.test.$1'), newContent, panel); 
+            actions.appendChild(applyBtn);
+            panel.appendChild(actions);
+
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
+        }
     }
+
     async function onSymbolSelectForTest(filePath, symbol, panel) {
         const framework = prompt(`Enter the testing framework for "${symbol}":`, 'jest');
         if (!framework || !framework.trim()) { closeTab(panel.dataset.tabId); return; }

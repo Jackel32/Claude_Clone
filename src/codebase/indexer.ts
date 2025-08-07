@@ -1,6 +1,6 @@
 /**
  * @file src/codebase/indexer.ts
- * @description Caching mechanism for file analysis.
+ * @description Caching mechanism for file analysis. Refactored for performance and maintainability.
  */
 
 import * as crypto from 'crypto';
@@ -8,9 +8,10 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { writeFile } from '../fileops/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
-import { scanProject } from './scanner.js';
+import { scanProject } from './scanner.js'; // Added import
 import { logger } from '../logger/index.js';
 
+// Added constant for use in isIndexUpToDate
 const VALID_EXTENSIONS = new Set(['.ts', '.js', '.jsx', '.tsx', '.py', '.c', '.cpp', '.h', '.hpp', '.cs', '.java', '.md', '.json', '.html', '.css']);
 
 interface CacheEntry {
@@ -24,68 +25,115 @@ function getHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-export async function loadCache(projectRoot: string): Promise<AnalysisCache> {
-  const projectCacheDir = await getProjectCacheDir(projectRoot);
-  const cacheFile = path.join(projectCacheDir, 'analysis_cache.json');
-  try {
-    const content = await fs.readFile(cacheFile, 'utf-8');
-    return JSON.parse(content);
-  } catch (error: any) {
-    if (error.code === 'ENOENT') return {};
-    throw error;
+export class Indexer {
+  private projectRoot: string;
+  private cachePath: string | null = null;
+  private cache: AnalysisCache = {};
+
+  constructor(projectRoot: string) {
+    this.projectRoot = projectRoot;
   }
-}
 
-export async function saveCache(projectRoot: string, cache: AnalysisCache): Promise<void> {
-  const projectCacheDir = await getProjectCacheDir(projectRoot);
-  const cacheFile = path.join(projectCacheDir, 'analysis_cache.json');
-  await writeFile(cacheFile, JSON.stringify(cache, null, 2));
-}
-
-export async function checkCache(projectRoot: string, filePath: string): Promise<any | null> {
-  try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    const hash = getHash(content);
-    const cache = await loadCache(projectRoot);
-    if (cache[filePath] && cache[filePath].hash === hash) {
-      return cache[filePath].analysis;
+  async init(): Promise<void> {
+    // ... (init method remains the same)
+    const projectCacheDir = await getProjectCacheDir(this.projectRoot);
+    this.cachePath = path.join(projectCacheDir, 'analysis_cache.json');
+    
+    try {
+      const content = await fs.readFile(this.cachePath, 'utf-8');
+      this.cache = JSON.parse(content);
+      logger.info(`Loaded ${Object.keys(this.cache).length} entries from cache.`);
+    } catch (error: any) {
+      if (error.code === 'ENOENT') {
+        logger.info('No existing cache file found. Starting with an empty cache.');
+        this.cache = {};
+      } else {
+        logger.error(`Error loading cache file at ${this.cachePath}:`, error);
+        throw error;
+      }
     }
-  } catch (error) {
-    // This can happen if a file is deleted between scanning and checking. It's safe to ignore.
   }
-  return null;
-}
 
-export async function updateCache(projectRoot: string, filePath: string, analysis: any): Promise<void> {
-  const content = await fs.readFile(filePath, 'utf-8');
-  const hash = getHash(content);
-  const cache = await loadCache(projectRoot);
-  cache[filePath] = { hash, analysis };
-  await saveCache(projectRoot, cache);
-}
+  async saveCache(): Promise<void> {
+    // ... (saveCache method remains the same)
+    if (!this.cachePath) {
+        throw new Error("Indexer not initialized. Call init() before saving.");
+    }
+    await writeFile(this.cachePath, JSON.stringify(this.cache, null, 2));
+    logger.info(`Successfully saved ${Object.keys(this.cache).length} entries to cache.`);
+  }
 
-export async function isIndexUpToDate(projectRoot: string): Promise<boolean> {
-    const allFiles = await scanProject(projectRoot);
-    // FIX: Filter the files using the same logic as the indexer
+  async updateEntry(filePath: string, analysis: any): Promise<void> {
+    // ... (updateEntry method remains the same)
+    try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        const hash = getHash(content);
+        this.cache[filePath] = { hash, analysis };
+    } catch(error: any) {
+        logger.error(`Failed to update cache entry for ${filePath}:`, error);
+    }
+  }
+
+  // --- Start of Corrected/Added Section ---
+
+  /**
+   * Checks if the entire index is up-to-date by scanning all project files
+   * and comparing them against the in-memory cache.
+   */
+  async isIndexUpToDate(): Promise<boolean> {
+    logger.info(`Checking if index is up to date for project: ${this.projectRoot}`);
+    const allFiles = await scanProject(this.projectRoot);
     const files = allFiles.filter(file => VALID_EXTENSIONS.has(path.extname(file).toLowerCase()));
 
-    if (files.length === 0) return true;
-
-    const cache = await loadCache(projectRoot);
-
+    if (files.length === 0) {
+      logger.info('No relevant files to check, index is considered up to date.');
+      return true;
+    }
+    
     for (const file of files) {
-        try {
-            const content = await fs.readFile(file, 'utf-8');
-            const hash = getHash(content);
-            if (!cache[file] || cache[file].hash !== hash) {
-                logger.debug(`isIndexUpToDate: Found out-of-date file -> ${file}`);
-                return false;
-            }
-        } catch {
-            logger.debug(`isIndexUpToDate: Could not read file, assuming out-of-date -> ${file}`);
-            return false;
-        }
+      if (await this.isEntryStale(file)) {
+        logger.info(`Change detected (or file not in cache): ${file}`);
+        return false;
+      }
     }
 
+    logger.info('Index is up to date.');
     return true;
+  }
+
+  getCache(): AnalysisCache {
+    // ... (getCache method remains the same)
+    return this.cache;
+  }
+
+  removeEntries(filePaths: string[]): void {
+    // ... (removeEntries method remains the same)
+    for (const filePath of filePaths) {
+      delete this.cache[filePath];
+    }
+    logger.info(`Removed ${filePaths.length} entries from in-memory cache.`);
+  }
+
+  async isEntryStale(filePath: string): Promise<boolean> {
+    const entry = this.cache[filePath];
+    if (!entry) return true; // File is new
+
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const currentHash = getHash(content);
+
+      // --- Add this logging block ---
+      if (entry.hash !== currentHash) {
+        logger.warn(`Hash mismatch detected for: ${filePath}`);
+        logger.debug(`  -> Cached Hash:  ${entry.hash}`);
+        logger.debug(`  -> Current Hash: ${currentHash}`);
+        return true; // File has been modified
+      }
+      // --- End of logging block ---
+
+      return false; // Hashes match, entry is not stale
+    } catch {
+      return true; // File is unreadable or deleted, treat as stale
+    }
+  }
 }

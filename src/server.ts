@@ -24,9 +24,8 @@ import { runRefactor } from './core/refactor-core.js';
 import { runTestGeneration } from './core/test-core.js';
 import { runAgent, AgentUpdate } from './core/agent-core.js';
 import { runReport } from './core/report-core.js';
-import { isIndexUpToDate } from './codebase/index.js';
+import { Indexer } from './codebase/indexer.js';
 import { runIndex } from './core/index-core.js';
-import { log } from 'console';
 
 const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
@@ -60,7 +59,7 @@ export async function startServer() {
     const appContext: Omit<AppContext, 'args'> = { profile, aiProvider, logger };
     const reposDir = path.join(process.env.HOME || '/root', '.claude-code', 'repos');
     await fs.mkdir(reposDir, { recursive: true });
-    
+
     app.use(express.json());
     app.use(express.static(path.join(__dirname, '../public')));
     
@@ -242,20 +241,37 @@ export async function startServer() {
         ws.on('message', async (message) => {
             try {
                 const data = JSON.parse(message.toString());
-                const activeRepo = app.get('CODE_ANALYSIS_ROOT');
+                let activeRepo = app.get('CODE_ANALYSIS_ROOT');
+                if (activeRepo) {
+                    activeRepo = path.resolve(activeRepo); 
+                }
+                
+                if (!activeRepo && data.type !== 'agent-task') {
+                     ws.send(JSON.stringify({ type: 'error', content: 'No active repository selected.' }));
+                     return;
+                }
+
                 const agentContext = { ...appContext, args: { path: activeRepo } };
 
                 if (data.type === 'agent-task') {
-                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify(update));
-                    runAgent(data.task, agentContext, onUpdate);
+                    const { taskId, task } = data;
+                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
+                    runAgent(task, agentContext, onUpdate);
                 } else if (data.type === 'get-report') {
-                    const onUpdate = (update: any) => ws.send(JSON.stringify(update));
+                    const { taskId } = data;
+                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
                     runReport(agentContext, onUpdate);
                 } else if (data.type === 'start-indexing') {
-                    const onUpdate = (update: any) => ws.send(JSON.stringify(update));
+                    const { taskId } = data;
+                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
                     runIndex(agentContext, onUpdate);
                 } else {
-                    if (!(await isIndexUpToDate(activeRepo))) {
+                    logger.info('Received chat message, checking if index is up to date...');
+
+                    const activeRepoIndexer = new Indexer(activeRepo);
+                    await activeRepoIndexer.init(); // Load its specific cache
+
+                    if (!(await activeRepoIndexer.isIndexUpToDate())) {
                         ws.send(JSON.stringify({ type: 'index-required' }));
                         return;
                     }
@@ -265,6 +281,7 @@ export async function startServer() {
                     const contextStr = await getChatContext(query, agentContext);
                     const prompt = constructChatPrompt(conversationHistory, contextStr);
                     const stream = await aiProvider.invoke(prompt, true);
+
                     ws.send(JSON.stringify({ type: 'start' }));
                     const reader = stream.getReader();
                     const decoder = new TextDecoder();

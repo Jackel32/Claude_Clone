@@ -37,6 +37,9 @@ export async function handleIndexCommand(context: AppContext): Promise<void> {
         if (update.content.startsWith('start-indexing')) {
             totalFiles = parseInt(update.content.split('|')[1], 10);
             progressBar.start(totalFiles, 0);
+        } else if (update.content === 'file-processed') {
+            processedFiles++;
+            progressBar.update(processedFiles);
         } else if (update.content.trim().startsWith('chunk')) {
             // Update the text to show chunk progress for the current file
             progressBar.update(processedFiles, { task: update.content.trim() });

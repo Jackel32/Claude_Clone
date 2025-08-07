@@ -16,6 +16,7 @@ const execAsync = promisify(exec);
 export type AgentUpdate = {
     type: 'thought' | 'action' | 'observation' | 'finish' | 'error' | 'stream-start' | 'stream-chunk' | 'stream-end';
     content: any;
+    taskId?: string;
 };
 export type AgentCallback = (update: AgentUpdate) => void;
 

@@ -100,7 +100,7 @@ export async function startMainMenu(): Promise<void> {
         break;
         
       case 'Chat with the codebase':
-        await handleChatCommand({ ...baseContext, args: {} });
+        await handleChatCommand({ ...baseContext, args: { path: cwd } });
         break;
 
       case 'Update codebase index':
