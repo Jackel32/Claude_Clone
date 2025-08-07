@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const indexCancelBtn = document.getElementById('index-cancel-btn');
 
     // --- STATE MANAGEMENT ---
-    const logHistory = [];
     let tabCounter = 0;
     let assistantMessageElement = null;
 
@@ -38,19 +37,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- EVENT LISTENERS ---
     chatForm.addEventListener('submit', handleChatSubmit);
-    if(agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
-    if(addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
-    if(refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
-    if(testBtn) testBtn.addEventListener('click', showTestDialog);
-    if(gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
-    if(reportBtn) reportBtn.addEventListener('click', showReport);
-    
+    if (agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
+    if (addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
+    if (refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
+    if (testBtn) testBtn.addEventListener('click', showTestDialog);
+    if (gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
+    if (reportBtn) reportBtn.addEventListener('click', showReport);
+
     indexNowBtn.addEventListener('click', () => {
         indexingModal.classList.add('hidden');
-        const panel = createTab('Indexing Project');
+        const taskId = `task-${Date.now()}`;
+        const panel = createTab('Indexing Project', true, taskId);
         panel.innerHTML = '<h3>Indexing codebase...</h3>';
         setTabStatus(panel, 'running'); // Start the spinner
-        socket.send(JSON.stringify({ type: 'start-indexing' }));
+        socket.send(JSON.stringify({ type: 'start-indexing', taskId }));
     });
 
     indexCancelBtn.addEventListener('click', () => {
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Unknown cloning error');
-            
+
             await initializeRepoSelector();
             const newRepoResponse = await fetch('/api/projects');
             const projects = await newRepoResponse.json();
@@ -131,14 +131,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Could not find newly cloned repository.');
             }
         } catch (error) {
-             alert(`Error cloning repository: ${error.message}`);
-             cloneButton.textContent = 'Clone';
-             cloneButton.disabled = false;
+            alert(`Error cloning repository: ${error.message}`);
+            cloneButton.textContent = 'Clone';
+            cloneButton.disabled = false;
         }
     });
 
     // --- TAB MANAGEMENT ---
-    function createTab(title, makeActive = true) {
+    function createTab(title, makeActive = true, taskId = null) {
         tabCounter++;
         const tabId = `tab-${tabCounter}`;
         const tab = document.createElement('div');
@@ -161,18 +161,23 @@ document.addEventListener('DOMContentLoaded', () => {
         const panel = document.createElement('div');
         panel.className = 'tab-panel';
         panel.dataset.tabId = tabId;
+        if (taskId) {
+            panel.dataset.taskId = taskId;
+        }
         tabPanels.appendChild(panel);
         if (makeActive) {
             switchToTab(tabId);
         }
         return panel;
     }
+
     function switchToTab(tabId) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.classList.add('active');
         document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
         document.querySelector(`.tab-panel[data-tab-id="${tabId}"]`)?.classList.add('active');
     }
+
     function closeTab(tabId) {
         if (['home', 'logs'].includes(tabId)) return;
         document.querySelector(`.tab[data-tab-id="${tabId}"]`)?.remove();
@@ -207,6 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
         homeTab.onclick = () => switchToTab('home');
         tabBar.appendChild(homeTab);
 
+        // The 'Logs' tab is kept for general server messages but is no longer used for tasks.
         const logsTab = document.createElement('div');
         logsTab.className = 'tab';
         logsTab.dataset.tabId = 'logs';
@@ -228,24 +234,55 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleSocketMessage(event) {
         const message = JSON.parse(event.data);
         const messageType = message.type;
-        if (messageType === 'index-required') {
-            indexingModal.classList.remove('hidden');
+
+        if (message.taskId) {
+            const panel = document.querySelector(`.tab-panel[data-task-id="${message.taskId}"]`);
+            if (panel) {
+                handleTaskUpdate(message, panel);
+            } else {
+                console.warn('Received message for non-existent task ID:', message.taskId);
+            }
             return;
         }
-        if (['start', 'chunk', 'end'].includes(messageType)) {
+
+        if (messageType === 'index-required') {
+            indexingModal.classList.remove('hidden');
+        } else if (['start', 'chunk', 'end'].includes(messageType)) {
             handleChatMessage(message);
         } else {
-            handleLogMessage(message);
+            // Fallback for any non-task, non-chat messages
+            console.log("Generic log message:", message);
+            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
+            if(logsPanel) {
+                logsPanel.textContent += JSON.stringify(message, null, 2) + '\n';
+                logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
+            }
         }
     }
+
     function handleChatMessage(message) {
         switch (message.type) {
-            case 'start': assistantMessageElement = createMessageElement('assistant'); chatWindow.prepend(assistantMessageElement); break;
-            case 'chunk': if (assistantMessageElement) assistantMessageElement.firstChild.textContent += message.content; break;
-            case 'end': assistantMessageElement = null; break;
+            case 'start':
+                assistantMessageElement = createMessageElement('assistant');
+                chatWindow.prepend(assistantMessageElement);
+                break;
+            case 'chunk':
+                if (assistantMessageElement) assistantMessageElement.firstChild.textContent += message.content;
+                break;
+            case 'end':
+                assistantMessageElement = null;
+                break;
         }
     }
-    function handleLogMessage(message) {
+
+    function handleTaskUpdate(message, panel) {
+        let pre = panel.querySelector('pre');
+        if (!pre) {
+            panel.innerHTML = ''; // Clear initial message like "Generating..."
+            pre = document.createElement('pre');
+            panel.appendChild(pre);
+        }
+
         let logText = '';
         switch (message.type) {
             case 'thought': logText = `[THOUGHT] ${message.content}`; break;
@@ -256,24 +293,19 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'stream-start': logText = '\n--- AI RESPONSE ---\n'; break;
             case 'stream-chunk': logText = message.content; break;
             case 'stream-end': logText = ''; break;
-            default: return;
+            default: logText = `[INFO] ${JSON.stringify(message.content)}`; break;
         }
 
-        const activePanel = document.querySelector('.tab-panel.active');
+        if (logText) {
+             pre.textContent += logText + (message.type === 'stream-chunk' ? '' : '\n\n');
+             panel.scrollTop = panel.scrollHeight;
+        }
+
         if (message.type === 'finish' || message.type === 'error') {
-            if(activePanel) setTabStatus(activePanel, 'finished');
-        }
-
-        logHistory.push(logText);
-        const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
-        if (logsPanel) {
-            logsPanel.textContent = logHistory.join(message.type === 'stream-chunk' ? '' : '\n\n');
-            logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
-        }
-        if (message.type !== 'finish' && message.type !== 'error') {
-            switchToTab('logs');
+            setTabStatus(panel, 'finished');
         }
     }
+
     function handleChatSubmit(e) {
         e.preventDefault();
         const messageText = messageInput.value;
@@ -285,6 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.send(JSON.stringify({ type: 'chat', content: messageText }));
         messageInput.value = '';
     }
+
     function createMessageElement(role, type = 'normal') {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', role);
@@ -298,19 +331,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function showAgentDialog() {
         const task = prompt("What task would you like the AI agent to perform?");
         if (task && task.trim()) {
-            switchToTab('logs');
-            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
-            if(logsPanel) logsPanel.textContent = '';
-            logHistory.length = 0;
-            socket.send(JSON.stringify({ type: 'agent-task', task }));
+            const taskId = `task-${Date.now()}`;
+            const panel = createTab('Agent Task', true, taskId);
+            panel.innerHTML = `<h3>Running agent with task: "${task}"</h3>`;
+            setTabStatus(panel, 'running');
+            socket.send(JSON.stringify({ type: 'agent-task', task, taskId }));
         }
     }
+
     function showReport() {
-        const panel = createTab('Project Report');
+        const taskId = `task-${Date.now()}`;
+        const panel = createTab('Project Report', true, taskId);
         panel.innerHTML = '<h3>Generating project report...</h3>';
         setTabStatus(panel, 'running'); // Start the spinner
-        socket.send(JSON.stringify({ type: 'get-report' }));
+        socket.send(JSON.stringify({ type: 'get-report', taskId }));
     }
+    
+    // Unmodified functions from here down...
     function showAddDocsDialog() { showGenericFileDialog('Add Docs', onFileSelectForDocs); }
     async function onFileSelectForDocs(filePath, panel) {
         panel.innerHTML = '<h3>Generating Documentation...</h3>';
