@@ -12,3 +12,4 @@ export * from './refactor.js';
 export * from './add-docs.js';
 export * from './test.js';
 export * from './task.js';
+export * from './branches.js';

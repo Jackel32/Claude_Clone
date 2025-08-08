@@ -118,3 +118,35 @@ export async function cloneRepo(repoUrl: string, pat: string, localPath: string)
     const authedUrl = repoUrl.replace('https://', `https://oauth2:${pat}@`);
     await runGitCommand(['clone', authedUrl, localPath], '.');
 }
+
+/**
+ * Fetches all local and remote branches from the repository.
+ * @param cwd The directory of the git repository.
+ * @returns A list of branch names.
+ */
+export async function getBranches(cwd: string): Promise<string[]> {
+    try {
+        const output = await runGitCommand(['branch', '-a'], cwd);
+        if (!output) return [];
+        // Clean up the git branch output
+        return output.split('\n')
+            .map(line => line.trim())
+            .filter(line => line && !line.includes('->')) // Filter out the HEAD pointer
+            .map(line => line.replace(/^\*\s*/, '')); // Remove the '*' from the current branch
+    } catch (error) {
+        logger.error(error, "Failed to execute 'git branch' command");
+        return [];
+    }
+}
+
+/**
+ * Gets the diff between two branches.
+ * @param baseBranch The base branch (e.g., 'main').
+ * @param compareBranch The branch with the new changes (e.g., 'feature/new-login').
+ * @param cwd The directory of the git repository.
+ * @returns The output of the git diff command.
+ */
+export async function getDiffBetweenBranches(baseBranch: string, compareBranch: string, cwd: string): Promise<string> {
+    // The '...' syntax shows changes on compareBranch since it diverged from baseBranch
+    return await runGitCommand(['diff', `${baseBranch}...${compareBranch}`], cwd);
+}

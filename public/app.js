@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const refactorBtn = document.getElementById('refactor-btn');
     const testBtn = document.getElementById('test-btn');
     const gitDiffBtn = document.getElementById('git-diff-btn');
+    const gitBranchesBtn = document.getElementById('git-branches-btn');
     const reportBtn = document.getElementById('report-btn');
     const repoSelectorOverlay = document.getElementById('repo-selector-overlay');
     const appContainer = document.getElementById('app-container');
@@ -42,6 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
     if (testBtn) testBtn.addEventListener('click', showTestDialog);
     if (gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
+    if (gitBranchesBtn) gitBranchesBtn.addEventListener('click', showGitBranchesDialog);
     if (reportBtn) reportBtn.addEventListener('click', showReport);
 
     indexNowBtn.addEventListener('click', () => {
@@ -247,6 +249,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (messageType === 'index-required') {
             indexingModal.classList.remove('hidden');
+        } else if (messageType === 'finish') {
+            // This handles the 'finish' message from the index-core.ts
+            indexingModal.classList.add('hidden'); // Hide the modal
+
+            if (pendingUserMessage) {
+                console.log("Indexing complete. Re-sending pending message:", pendingUserMessage);
+                socket.send(JSON.stringify(pendingUserMessage));
+                pendingUserMessage = null; // Clear the pending message after re-sending
+            }
+
+            // Add back logging for consistency
+            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
+            if(logsPanel) {
+                logsPanel.textContent += JSON.stringify(message, null, 2) + '\n';
+                logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
+            }
+
         } else if (['start', 'chunk', 'end'].includes(messageType)) {
             handleChatMessage(message);
         } else {
@@ -306,6 +325,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let pendingUserMessage = null;
+
     function handleChatSubmit(e) {
         e.preventDefault();
         const messageText = messageInput.value;
@@ -315,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
         userMessage.firstChild.textContent = messageText;
         chatWindow.prepend(userMessage);
         socket.send(JSON.stringify({ type: 'chat', content: messageText }));
+        pendingUserMessage = messageText;
         messageInput.value = '';
     }
 
@@ -496,6 +518,71 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.appendChild(actions);
         } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
+
+    async function showGitBranchesDialog() {
+        const panel = createTab('Analyze Branches');
+        panel.innerHTML = '<h3>Loading branch history...</h3>';
+        try {
+            const response = await fetch('/api/branches');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const branches = await response.json();
+            
+            if (branches.length < 2) {
+                panel.innerHTML = '<h3>Not enough branches to compare.</h3>';
+                return;
+            }
+
+            const branchList = document.createElement('ul');
+            branches.forEach(branchName => {
+                const li = document.createElement('li');
+                li.textContent = branchName;
+                li.onclick = () => onBranchSelect_Start(branchName, branches, panel);
+                branchList.appendChild(li);
+            });
+            panel.innerHTML = '<h3>Select the BASE branch (e.g., main):</h3>';
+            panel.appendChild(branchList);
+
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
+        }
+    }
+
+    function onBranchSelect_Start(baseBranch, branches, panel) {
+        panel.innerHTML = '<h3>Select the COMPARE branch (e.g., your feature branch):</h3>';
+        const remainingBranches = branches.filter(b => b !== baseBranch);
+        const branchList = document.createElement('ul');
+        remainingBranches.forEach(branchName => {
+            const li = document.createElement('li');
+            li.textContent = branchName;
+            li.onclick = () => onBranchSelect_End(baseBranch, branchName, panel);
+            branchList.appendChild(li);
+        });
+        panel.appendChild(branchList);
+    }
+
+    async function onBranchSelect_End(baseBranch, compareBranch, panel) {
+        panel.innerHTML = '<h3>Generating Diff and AI Analysis...</h3>';
+        try {
+            const response = await fetch('/api/diff', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ baseBranch, compareBranch }), // Send branches instead of commits
+            });
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const { patch, analysis } = await response.json();
+            
+            const analysisElement = document.createElement('div');
+            analysisElement.className = 'ai-analysis';
+            const analysisHtml = (typeof analysis === 'string' && analysis) ? analysis.replace(/\n/g, '<br>') : 'No analysis provided.';
+            analysisElement.innerHTML = `<h3>AI Summary</h3><p>${analysisHtml}</p>`;
+            
+            displayDiff(panel, patch, `Diff: ${baseBranch}...${compareBranch}`);
+            panel.prepend(analysisElement);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
+        }
+    }
+
     async function showGitDiffDialog() {
         const panel = createTab('Analyze Commits');
         panel.innerHTML = '<h3>Loading commit history...</h3>';
@@ -521,6 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
+    
     function onCommitSelect_Start(startCommit, commits, panel) {
         panel.innerHTML = '<h3>Select the END commit (newer):</h3>';
         const commitList = document.createElement('ul');

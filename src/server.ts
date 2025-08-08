@@ -16,7 +16,7 @@ import { createAIProvider } from './ai/provider-factory.js';
 import { logger } from './logger/index.js';
 import { AppContext, ChatMessage } from './types.js';
 import { constructChatPrompt, constructDiffAnalysisPrompt } from './ai/index.js';
-import { getRecentCommits, getDiffBetweenCommits, cloneRepo } from './fileops/index.js';
+import { getRecentCommits, getDiffBetweenCommits, cloneRepo, getBranches, getDiffBetweenBranches } from './fileops/index.js';
 import { buildFileTree, listSymbolsInFile, buildTestableFileTree, initializeParser } from './codebase/index.js';
 import { getChatContext } from './core/chat-core.js';
 import { runAddDocs } from './core/add-docs-core.js';
@@ -171,8 +171,17 @@ export async function startServer() {
     app.post('/api/diff', async (req, res) => {
         try {
             const activeRepoPath = getActiveRepoPath(req);
-            const { startCommit, endCommit } = req.body;
-            const diffContent = await getDiffBetweenCommits(startCommit, endCommit, activeRepoPath);
+            const { startCommit, endCommit, baseBranch, compareBranch } = req.body;
+            let diffContent = '';
+
+            if (startCommit && endCommit) {
+                diffContent = await getDiffBetweenCommits(startCommit, endCommit, activeRepoPath);
+            } else if (baseBranch && compareBranch) {
+                diffContent = await getDiffBetweenBranches(baseBranch, compareBranch, activeRepoPath);
+            } else {
+                throw new Error('Invalid request for diff. Provide either commits or branches.');
+            }
+
             let analysis = 'AI analysis could not be generated for this diff.';
             if (diffContent && diffContent.trim()) {
                 const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
@@ -181,6 +190,15 @@ export async function startServer() {
             }
             res.json({ patch: diffContent, analysis });
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+
+    app.get('/api/branches', async (req, res) => {
+        try {
+            const branches = await getBranches(getActiveRepoPath(req));
+            res.json(branches);
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
     });
 
     app.post('/api/add-docs', async (req, res) => {

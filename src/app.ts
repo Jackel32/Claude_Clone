@@ -11,7 +11,8 @@ import { AppContext } from './types.js';
 import { 
   handleChatCommand, 
   handleIndexCommand, 
-  handleDiffCommand, 
+  handleDiffCommand,
+  handleBranchesCommand,
   handleReportCommand,
   handleGenerateCommand,
   handleRefactorCommand,
@@ -81,7 +82,8 @@ export async function startMainMenu(): Promise<void> {
           new inquirer.Separator(),
           'Chat with the codebase',
           'Update codebase index',
-          'Analyze Git commits (interactive)',
+          'Analyze Git commits',
+          'Analyze Git Branches',
           'Generate a high-level project report',
           new inquirer.Separator(),
           'Generate a new code snippet',
@@ -107,10 +109,14 @@ export async function startMainMenu(): Promise<void> {
         await handleIndexCommand({ ...baseContext, args: { path: cwd } });
         break;
       
-      case 'Analyze Git commits (interactive)':
+      case 'Analyze Git commits':
         await handleDiffCommand({ ...baseContext, args: { path: cwd } });
         break;
       
+      case 'Analyze Git Branches':
+        await handleBranchesCommand({ ...baseContext, args: { path: cwd } });
+        break;
+
       case 'Generate a high-level project report':
         await handleReportCommand({ ...baseContext, args: { path: cwd } });
         break;
