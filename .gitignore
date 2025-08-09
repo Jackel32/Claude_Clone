@@ -3,3 +3,4 @@ dist
 package-lock.json
 .git
 /grammars/*/node_modules
+.env
