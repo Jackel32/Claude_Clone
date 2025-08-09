@@ -7,7 +7,6 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import Parser from 'tree-sitter';
 import Ada from 'tree-sitter-ada';
-
 import { createRequire } from 'module';
 import { logger } from '../logger/index.js';
 const require = createRequire(import.meta.url);
@@ -20,18 +19,15 @@ const Cpp = require('tree-sitter-cpp/bindings/node');
 
 const parser = new Parser();
 const languageConfig: Record<string, { language: any, symbolQuery: string }> = {};
+let isParserInitialized = false;
 
 /**
  * Initializes the Tree-sitter parser and loads all language grammars and queries.
  * This should run only once when the application starts up.
  */
 export async function initializeParser(): Promise<void> {
-        if (Object.keys(languageConfig).length > 0) return; // Already initialized
-
+    if (isParserInitialized) return;
     logger.info('Initializing Tree-sitter parsers...');
-    
-    // The Parser class itself is imported directly.
-    // The language grammars are loaded via require.
 
     languageConfig['.ts'] = {
         language: TypeScript,
@@ -90,10 +86,14 @@ export async function initializeParser(): Promise<void> {
         }
     }
 
+    isParserInitialized = true;
     logger.info('Tree-sitter parsers initialized for all supported languages.');
 }
 
-function getLanguageConfig(filePath: string) {
+async function getLanguageConfig(filePath: string) {
+    if (!isParserInitialized) {
+        await initializeParser();
+    }
     const extension = path.extname(filePath);
     return languageConfig[extension];
 }
@@ -104,7 +104,7 @@ function getLanguageConfig(filePath: string) {
  * @returns {Promise<string[]>} A list of symbol names found in the file.
  */
 export async function listSymbolsInFile(filePath: string): Promise<string[]> {
-    const config = getLanguageConfig(filePath);
+    const config = await getLanguageConfig(filePath);
     if (!config) return [];
     
     parser.setLanguage(config.language);
@@ -127,8 +127,8 @@ export async function listSymbolsInFile(filePath: string): Promise<string[]> {
  * @returns The source code of the symbol, or null if not found.
  */
 export async function getSymbolContent(filePath: string, symbolName: string): Promise<string | null> {
-    const config = getLanguageConfig(filePath);
-    if (!config) return null;
+    const config = await getLanguageConfig(filePath);
+    if (!config || !config.language) return null;
 
     parser.setLanguage(config.language);
     const sourceCode = await fs.readFile(filePath, 'utf8');
@@ -139,10 +139,14 @@ export async function getSymbolContent(filePath: string, symbolName: string): Pr
     const matches = query.captures(tree.rootNode);
 
     for (let i = 0; i < matches.length; i++) {
-        if (matches[i].name === 'symbol.name' && matches[i].node.text === symbolName) {
-            if (matches[i + 1] && matches[i + 1].name === 'symbol.node') {
-                return matches[i + 1].node.text;
-            }
+        const match = matches[i];
+        if (match.name === 'symbol.name' && match.node.text === symbolName) {
+            const nodeMatch = matches.find(m => 
+                m.name === 'symbol.node' && 
+                m.node.startIndex >= match.node.startIndex && 
+                m.node.endIndex >= match.node.endIndex
+            );
+            if (nodeMatch) return nodeMatch.node.text;
         }
     }
     return null;

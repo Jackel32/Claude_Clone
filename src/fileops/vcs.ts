@@ -79,7 +79,7 @@ export async function findGitRoot(startPath: string = '.'): Promise<string | nul
  */
 export async function getRecentCommits(cwd: string): Promise<string[]> {
   try {
-    const output = await runGitCommand(['log', '--pretty=format:%h|%an|%ar|%s', '-n', '20'], cwd);
+    const output = await runGitCommand(['log', '--all', '--pretty=format:%h|%an|%ar|%s', '-n', '20'], cwd);
     if (!output) {
         return [];
     }

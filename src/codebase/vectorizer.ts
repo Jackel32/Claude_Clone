@@ -10,8 +10,6 @@ import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
 
-const indexInstances = new Map<string, LocalIndex>();
-
 /**
  * Splits code into manageable, overlapping chunks.
  * @param {string} content - The file content.
@@ -36,9 +34,7 @@ export async function getVectorIndex(projectRoot: string): Promise<LocalIndex> {
     }
     const projectCacheDir = await getProjectCacheDir(projectRoot);
     const indexPath = path.join(projectCacheDir, 'vector_index');
-    const newIndex = new LocalIndex(indexPath);
-    indexInstances.set(projectRoot, newIndex);
-    return newIndex;
+    return new LocalIndex(indexPath);
 }
 
 /**

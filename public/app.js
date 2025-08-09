@@ -24,8 +24,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const indexCancelBtn = document.getElementById('index-cancel-btn');
 
     // --- STATE MANAGEMENT ---
+    const logHistory = [];
     let tabCounter = 0;
     let assistantMessageElement = null;
+    let pendingUserMessage = null;
+    let lastSentChatMessage = null;
 
     // --- INITIALIZATION ---
     initializeRepoSelector();
@@ -38,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- EVENT LISTENERS ---
     chatForm.addEventListener('submit', handleChatSubmit);
-    if (agentTaskBtn) agentTaskBtn.addEventListener('click', showAgentDialog);
+    if (agentTaskBtn) agentTaskBtn.addEventListener('click', showTaskLibrary);
     if (addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
     if (refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
     if (testBtn) testBtn.addEventListener('click', showTestDialog);
@@ -51,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const taskId = `task-${Date.now()}`;
         const panel = createTab('Indexing Project', true, taskId);
         panel.innerHTML = '<h3>Indexing codebase...</h3>';
-        setTabStatus(panel, 'running'); // Start the spinner
+        setTabStatus(panel, 'running');
         socket.send(JSON.stringify({ type: 'start-indexing', taskId }));
     });
 
@@ -235,47 +238,25 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- MESSAGE HANDLING ---
     function handleSocketMessage(event) {
         const message = JSON.parse(event.data);
-        const messageType = message.type;
-
+        if (message.type === 'index-required') {
+            pendingUserMessage = lastSentChatMessage;
+            indexingModal.classList.remove('hidden');
+            return;
+        }
         if (message.taskId) {
             const panel = document.querySelector(`.tab-panel[data-task-id="${message.taskId}"]`);
-            if (panel) {
-                handleTaskUpdate(message, panel);
-            } else {
-                console.warn('Received message for non-existent task ID:', message.taskId);
+            if (panel) handleTaskUpdate(message, panel);
+            if (message.type === 'finish' && pendingUserMessage) {
+                socket.send(JSON.stringify(pendingUserMessage));
+                pendingUserMessage = null;
             }
             return;
         }
 
-        if (messageType === 'index-required') {
-            indexingModal.classList.remove('hidden');
-        } else if (messageType === 'finish') {
-            // This handles the 'finish' message from the index-core.ts
-            indexingModal.classList.add('hidden'); // Hide the modal
-
-            if (pendingUserMessage) {
-                console.log("Indexing complete. Re-sending pending message:", pendingUserMessage);
-                socket.send(JSON.stringify(pendingUserMessage));
-                pendingUserMessage = null; // Clear the pending message after re-sending
-            }
-
-            // Add back logging for consistency
-            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
-            if(logsPanel) {
-                logsPanel.textContent += JSON.stringify(message, null, 2) + '\n';
-                logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
-            }
-
-        } else if (['start', 'chunk', 'end'].includes(messageType)) {
+        if (['start', 'chunk', 'end'].includes(message.type)) {
             handleChatMessage(message);
         } else {
-            // Fallback for any non-task, non-chat messages
-            console.log("Generic log message:", message);
-            const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
-            if(logsPanel) {
-                logsPanel.textContent += JSON.stringify(message, null, 2) + '\n';
-                logsPanel.parentElement.scrollTop = logsPanel.parentElement.scrollHeight;
-            }
+            handleLogMessage(message);
         }
     }
 
@@ -325,8 +306,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    let pendingUserMessage = null;
-
     function handleChatSubmit(e) {
         e.preventDefault();
         const messageText = messageInput.value;
@@ -335,8 +314,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const userMessage = createMessageElement('user');
         userMessage.firstChild.textContent = messageText;
         chatWindow.prepend(userMessage);
-        socket.send(JSON.stringify({ type: 'chat', content: messageText }));
-        pendingUserMessage = messageText;
+        const messageToSend = { type: 'chat', content: messageText };
+        lastSentChatMessage = messageToSend;
+        socket.send(JSON.stringify(messageToSend));
         messageInput.value = '';
     }
 
@@ -350,22 +330,105 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- ACTION WORKFLOWS ---
-    function showAgentDialog() {
-        const task = prompt("What task would you like the AI agent to perform?");
-        if (task && task.trim()) {
-            const taskId = `task-${Date.now()}`;
-            const panel = createTab('Agent Task', true, taskId);
-            panel.innerHTML = `<h3>Running agent with task: "${task}"</h3>`;
-            setTabStatus(panel, 'running');
-            socket.send(JSON.stringify({ type: 'agent-task', task, taskId }));
+    async function showTaskLibrary() {
+        const panel = createTab('Task Library');
+        panel.innerHTML = '<h3>Loading available tasks...</h3>';
+        try {
+            const response = await fetch('/api/prompt-library');
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const library = await response.json();
+            
+            panel.innerHTML = '<h3>Select a Task to Execute:</h3>';
+            const taskList = document.createElement('div'); // Use a div for card-like layout
+            library.forEach(task => {
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.innerHTML = `<h4>${task.title}</h4><p>${task.description}</p>`;
+                card.onclick = () => startTaskWorkflow(task, panel);
+                taskList.appendChild(card);
+            });
+            panel.appendChild(taskList);
+        } catch (e) {
+            panel.innerHTML = `Error: ${e.message}`;
         }
+    }
+
+    async function startTaskWorkflow(taskTemplate, panel) {
+        const inputs = {};
+        
+        // This function will collect all needed inputs from the user
+        async function collectInputs(index = 0) {
+            if (index >= taskTemplate.inputs.length) {
+                // All inputs collected, start the agent
+                switchToTab('logs');
+                const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
+                if (logsPanel) logsPanel.textContent = '';
+                logHistory.length = 0;
+                
+                socket.send(JSON.stringify({
+                    type: 'agent-task-from-library',
+                    taskId: taskTemplate.id,
+                    inputs: inputs
+                }));
+                closeTab(panel.dataset.tabId);
+                return;
+            }
+
+            const input = taskTemplate.inputs[index];
+            panel.innerHTML = `<h3>${taskTemplate.title}</h3><p>${input.message}</p>`;
+
+            if (input.type === 'file' || input.type === 'testable-file') {
+                const api = input.type === 'file' ? '/api/file-tree' : '/api/testable-file-tree';
+                const response = await fetch(api);
+                const treeData = await response.json();
+                const treeRoot = document.createElement('ul');
+                treeRoot.className = 'file-tree';
+                if (treeData && treeData.children) {
+                    treeData.children.forEach(node => {
+                        treeRoot.appendChild(renderFileTree(node, (filePath) => {
+                            inputs[input.name] = filePath;
+                            collectInputs(index + 1); // Recurse for next input
+                        }));
+                    });
+                }
+                panel.appendChild(treeRoot);
+            } else if (input.type === 'symbol') {
+                const response = await fetch('/api/list-symbols', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filePath: inputs.filePath }),
+                });
+                const symbols = await response.json();
+                const symbolList = document.createElement('ul');
+                symbols.forEach(symbol => {
+                    const li = document.createElement('li');
+                    li.textContent = symbol;
+                    li.onclick = () => {
+                        inputs[input.name] = symbol;
+                        collectInputs(index + 1);
+                    };
+                    symbolList.appendChild(li);
+                });
+                panel.appendChild(symbolList);
+            } else { // 'text' input
+                const text = prompt(input.message);
+                if (!text || !text.trim()) {
+                    closeTab(panel.dataset.tabId);
+                    return; // Cancel task
+                }
+                inputs[input.name] = text;
+                await collectInputs(index + 1);
+            }
+        }
+        
+        await collectInputs();
     }
 
     function showReport() {
         const taskId = `task-${Date.now()}`;
         const panel = createTab('Project Report', true, taskId);
         panel.innerHTML = '<h3>Generating project report...</h3>';
-        setTabStatus(panel, 'running'); // Start the spinner
+        setTabStatus(panel, 'running');
         socket.send(JSON.stringify({ type: 'get-report', taskId }));
     }
     

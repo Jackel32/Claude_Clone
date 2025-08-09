@@ -8,3 +8,4 @@ export * from './ast.js';
 export * from './vectorizer.js';
 export * from './tree.js';
 export * from './cache-manager.js';
+export * from './reportIndexer.js';

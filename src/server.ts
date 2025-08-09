@@ -26,6 +26,8 @@ import { runAgent, AgentUpdate } from './core/agent-core.js';
 import { runReport } from './core/report-core.js';
 import { Indexer } from './codebase/indexer.js';
 import { runIndex } from './core/index-core.js';
+import { runGenerate } from './core/generate-core.js';
+import { TASK_LIBRARY } from './ai/prompt-library.js';
 
 const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
@@ -251,11 +253,38 @@ export async function startServer() {
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
+    app.get('/api/prompt-library', (req, res) => {
+        // We only send the parts the UI needs, not the prompt function
+        const libraryForUI = TASK_LIBRARY.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
+        res.json(libraryForUI);
+    });
+
+    app.post('/api/generate', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const { prompt } = req.body;
+            if (!prompt) {
+                return res.status(400).json({ error: 'Prompt is required.' });
+            }
+            const requestContext: AppContext = { ...appContext, args: { path: activeRepoPath } };
+            // You will need to create a 'runGenerate' function similar to 'runRefactor'
+            const newContent = await runGenerate(prompt, requestContext);
+            res.json({ newContent });
+        } catch (error) {
+            logger.error(error, `Error in /api/generate`);
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+
     // --- WebSocket Server ---
     wss.on('connection', (ws) => {
         logger.info('Client connected to WebSocket');
         const conversationHistory: ChatMessage[] = [];
         
+    const onUpdate = (update: { type: string; content: string }) => {
+        ws.send(JSON.stringify(update));
+    };
+
         ws.on('message', async (message) => {
             try {
                 const data = JSON.parse(message.toString());
@@ -271,7 +300,16 @@ export async function startServer() {
 
                 const agentContext = { ...appContext, args: { path: activeRepo } };
 
-                if (data.type === 'agent-task') {
+                if (data.type === 'agent-task-from-library') {
+                    const { taskId, inputs } = data;
+                    const taskTemplate = TASK_LIBRARY.find(t => t.id === taskId);
+                    if (taskTemplate) {
+                        const userTask = taskTemplate.prompt(inputs);
+                        runAgent(userTask, agentContext, onUpdate);
+                    } else {
+                        onUpdate({ type: 'error', content: `Unknown task ID: ${taskId}`});
+                    }
+                } else if (data.type === 'agent-task') {
                     const { taskId, task } = data;
                     const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
                     runAgent(task, agentContext, onUpdate);
@@ -309,8 +347,9 @@ export async function startServer() {
                         if (done) break;
                         fullResponse += decoder.decode(value, { stream: true });
                     }
+
                     let accumulatedText = '';
-                    const responseArray = JSON.parse(fullResponse);
+                        const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
                     for (const chunk of responseArray) {
                         const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
                         if (text) {

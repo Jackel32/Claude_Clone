@@ -6,7 +6,7 @@ import * as path from 'path';
 
 describe('End-to-End Tests for Multi-Language Support', () => {
     let server: http.Server;
-    let agent: request.SuperTest<request.Test>;
+    let agent: ReturnType<typeof request>;
 
     // Start the server before any tests run
     beforeAll(async () => {
