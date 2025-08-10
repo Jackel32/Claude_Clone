@@ -3,16 +3,16 @@
  * @description The Express.js webserver for the GUI.
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import * as diff from 'diff';
-import * as os from 'os';
 
-import { getAppContext } from './config/index.js';
+import { getProfile } from './config/index.js';
+import { createAIProvider } from './ai/provider-factory.js';
 import { logger } from './logger/index.js';
 import { AppContext, ChatMessage } from './types.js';
 import { constructChatPrompt, constructDiffAnalysisPrompt } from './ai/index.js';
@@ -25,10 +25,9 @@ import { runTestGeneration } from './core/test-core.js';
 import { runAgent, AgentUpdate } from './core/agent-core.js';
 import { runReport } from './core/report-core.js';
 import { Indexer } from './codebase/indexer.js';
-import { runIndex } from './core/index-core.js';
+import { runIndex, runInit } from './core/index-core.js';
 import { runGenerate } from './core/generate-core.js';
 import { TASK_LIBRARY } from './ai/prompt-library.js';
-import { getHistory, saveHistory } from './core/db.js';
 
 const PORT = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
@@ -37,35 +36,6 @@ const CODE_ANALYSIS_ROOT = './code-to-analyze';
 
 let serverInstance: http.Server | null = null;
 
-/**
- * A higher-order function to wrap async route handlers, providing
- * centralized error handling and removing boilerplate.
- * @param fn The async route handler function to wrap.
- * @returns An Express route handler.
- */
-const asyncWrapper = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => 
-    (req: Request, res: Response, next: NextFunction) => {
-        Promise.resolve(fn(req, res, next))
-            .then(data => res.json(data)) // Automatically send successful responses as JSON
-            .catch(error => {
-                logger.error(error, `Error in API endpoint: ${req.method} ${req.path}`);
-                res.status(500).json({ error: (error as Error).message });
-            });
-};
-
-async function validateProjectPath(projectPath: string): Promise<string> {
-    if (!projectPath || typeof projectPath !== 'string') {
-        throw new Error("A valid 'projectPath' must be provided with the request.");
-    }
-    // For security, resolve the path and ensure it's within an expected directory.
-    // This is a basic check; you might want to enhance it based on your security needs.
-    const resolvedPath = path.resolve(projectPath);
-    // For example, ensure it's within the reposDir or the mounted code analysis root
-    // This is left as an exercise for the user to implement based on their specific setup.
-    await fs.access(resolvedPath); // Check if the directory exists
-    return resolvedPath;
-}
-
 export async function startServer() {
     await initializeParser();
 
@@ -73,10 +43,23 @@ export async function startServer() {
     const server = http.createServer(app);
     const wss = new WebSocketServer({ server });
 
-    const appContext = await getAppContext();
+    const profile = await getProfile();
+    const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
+    const providerConfig = profile.providers?.[activeProviderName];
     
-    // Use os.homedir() for consistency with the config module
-    const reposDir = path.join(os.homedir(), '.claude-code', 'repos');
+    let apiKey: string | undefined;
+    if (activeProviderName === 'gemini') apiKey = process.env.GOOGLE_API_KEY;
+    else if (activeProviderName === 'anthropic') apiKey = process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) apiKey = providerConfig?.apiKey;
+
+    if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
+        throw new Error(`API key for provider "${activeProviderName}" not found.`);
+    }
+    
+    const aiProvider = createAIProvider(profile, apiKey, logger);
+    const appContext: Omit<AppContext, 'args'> = { profile, aiProvider, logger };
+    const reposDir = path.join(process.env.HOME || '/root', '.claude-code', 'repos');
     await fs.mkdir(reposDir, { recursive: true });
 
     app.use(express.json());
@@ -98,184 +81,239 @@ export async function startServer() {
     }
 
     // --- API ENDPOINTS ---
-    app.get('/api/projects', asyncWrapper(async (req, res) => {
-        const clonedEntries = await fs.readdir(reposDir, { withFileTypes: true });
-        const clonedProjects = clonedEntries.filter(e => e.isDirectory()).map(e => ({ name: e.name, path: path.join(reposDir, e.name) }));
+    app.get('/api/projects', async (req, res) => {
+        try {
+            // Get projects cloned via the app
+            const clonedEntries = await fs.readdir(reposDir, { withFileTypes: true });
+            const clonedProjects = clonedEntries
+                .filter(e => e.isDirectory())
+                .map(e => ({ name: e.name, path: path.join(reposDir, e.name) }));
 
-        const localEntries = await fs.readdir(CODE_ANALYSIS_ROOT, { withFileTypes: true });
-        const localProjects = localEntries.filter(e => e.isDirectory()).map(e => ({ name: e.name, path: path.join(CODE_ANALYSIS_ROOT, e.name) }));
-        
-        // No need for res.json() here, the wrapper handles it.
-        return { cloned: clonedProjects, local: localProjects };
-    }));
+            // Get local projects from the base mounted volume, not the "active" one
+            const localEntries = await fs.readdir(CODE_ANALYSIS_ROOT, { withFileTypes: true });
+            const localProjects = localEntries
+                .filter(e => e.isDirectory())
+                .map(e => ({ name: e.name, path: path.join(CODE_ANALYSIS_ROOT, e.name) }));
 
-    app.post('/api/repos/clone', asyncWrapper(async (req, res) => {
-        const { repoUrl, pat } = req.body;
-        const repoName = path.basename(repoUrl, '.git');
-        const localPath = path.join(reposDir, repoName);
-        await cloneRepo(repoUrl, pat, localPath);
-        return { success: true, repoName };
-    }));
+            res.json({ cloned: clonedProjects, local: localProjects });
+        } catch (error) {
+            // Log the actual error on the server for better debugging
+            logger.error(error, 'Error in /api/projects');
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+    
+    // This endpoint is now more generic
+    app.post('/api/set-active-project', (req, res) => {
+        const { projectPath } = req.body;
+        // The path from the client is already the full path inside the container
+        app.set('CODE_ANALYSIS_ROOT', projectPath);
+        logger.info(`Active repository set to: ${projectPath}`);
+        res.json({ success: true });
+    });
 
-    app.post('/api/repos/active', asyncWrapper(async (req, res) => {
+    app.post('/api/repos/clone', async (req, res) => {
+        try {
+            const { repoUrl, pat } = req.body;
+            const repoName = path.basename(repoUrl, '.git');
+            const localPath = path.join(reposDir, repoName);
+            await cloneRepo(repoUrl, pat, localPath);
+            res.json({ success: true, repoName });
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
+        }
+    });
+    
+    app.post('/api/repos/active', (req, res) => {
         const { repoName } = req.body;
         const activeRepoPath = path.join(reposDir, repoName);
         app.set('CODE_ANALYSIS_ROOT', activeRepoPath);
         logger.info(`Active repository set to: ${activeRepoPath}`);
-        return { success: true };
-    }));
+        res.json({ success: true });
+    });
 
     if (process.env.NODE_ENV === 'test') {
-        app.post('/api/test/set-active-repo', asyncWrapper(async (req, res) => {
+        app.post('/api/test/set-active-repo', (req, res) => {
             const { repoPath } = req.body;
             app.set('CODE_ANALYSIS_ROOT', path.resolve(repoPath));
             logger.info(`[TEST] Active repository set to: ${app.get('CODE_ANALYSIS_ROOT')}`);
-            return { success: true };
-        }));
+            res.json({ success: true });
+        });
     }
 
-    app.post('/api/file-tree', asyncWrapper(async (req, res) => {
-        const projectPath = await validateProjectPath(req.body.projectPath);
-        const tree = await buildFileTree(projectPath);
-        return tree;
-    }));
+    app.get('/api/file-tree', async (req, res) => {
+        try {
+            const tree = await buildFileTree(getActiveRepoPath(req));
+            res.json(tree);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+    
+    app.get('/api/testable-file-tree', async (req, res) => {
+        try {
+            const tree = await buildTestableFileTree(getActiveRepoPath(req));
+            res.json(tree);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.get('/api/testable-file-tree', asyncWrapper(async (req, res) => {
-        const projectPath = await validateProjectPath(req.body.projectPath);
-        const tree = await buildTestableFileTree(projectPath);
-        return tree;
-    }));
+    app.post('/api/list-symbols', async (req, res) => {
+        try {
+            const { filePath } = req.body;
+            const symbols = await listSymbolsInFile(filePath);
+            res.json(symbols);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.post('/api/list-symbols', asyncWrapper(async (req, res) => {
-        const { filePath } = req.body;
-        await validateProjectPath(path.dirname(filePath));
-        const symbols = await listSymbolsInFile(filePath);
-        return symbols;
-    }));
+    app.get('/api/commits', async (req, res) => {
+        try {
+            const commits = await getRecentCommits(getActiveRepoPath(req));
+            res.json(commits);
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.get('/api/commits', asyncWrapper(async (req, res) => {
-        const projectPath = await validateProjectPath(req.body.projectPath);
-        const commits = await getRecentCommits(projectPath);
-        return commits;
-    }));
+    app.post('/api/diff', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const { startCommit, endCommit, baseBranch, compareBranch } = req.body;
+            let diffContent = '';
 
-    app.post('/api/diff', asyncWrapper(async (req, res) => {
-        const projectPath = await validateProjectPath(req.body.projectPath);
-        const { startCommit, endCommit, baseBranch, compareBranch } = req.body;
-        let diffContent = '';
+            if (startCommit && endCommit) {
+                diffContent = await getDiffBetweenCommits(startCommit, endCommit, activeRepoPath);
+            } else if (baseBranch && compareBranch) {
+                diffContent = await getDiffBetweenBranches(baseBranch, compareBranch, activeRepoPath);
+            } else {
+                throw new Error('Invalid request for diff. Provide either commits or branches.');
+            }
 
-        if (startCommit && endCommit) {
-            diffContent = await getDiffBetweenCommits(startCommit, endCommit, projectPath);
-        } else if (baseBranch && compareBranch) {
-            diffContent = await getDiffBetweenBranches(baseBranch, compareBranch, projectPath);
-        } else {
-            throw new Error('Invalid diff request. Provide either commits or branches.');
+            let analysis = 'AI analysis could not be generated for this diff.';
+            if (diffContent && diffContent.trim()) {
+                const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
+                const response = await aiProvider.invoke(analysisPrompt, false);
+                analysis = response?.candidates?.[0]?.content?.parts?.[0]?.text || analysis;
+            }
+            res.json({ patch: diffContent, analysis });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
+
+    app.get('/api/branches', async (req, res) => {
+        try {
+            const branches = await getBranches(getActiveRepoPath(req));
+            res.json(branches);
+        } catch (error) {
+            res.status(500).json({ error: (error as Error).message });
         }
+    });
 
-        let analysis = 'AI analysis could not be generated for this diff.';
-        if (diffContent && diffContent.trim()) {
-            const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
-            const response = await appContext.aiProvider.invoke(analysisPrompt, false);
-            analysis = response?.candidates?.[0]?.content?.parts?.[0]?.text || analysis;
+    app.post('/api/add-docs', async (req, res) => {
+        try {
+            const { filePath } = req.body;
+            // The server reads the file content once.
+            const originalContent = await fs.readFile(filePath, 'utf-8');
+            
+            const activeRepoPath = getActiveRepoPath(req);
+            const requestContext = { ...appContext, args: { path: activeRepoPath } };
+
+            // The content is passed to the core function.
+            const newContent = await runAddDocs(originalContent, requestContext);
+            
+            const patch = diff.createPatch(filePath, originalContent, newContent);
+            res.json({ patch, newContent });
+        } catch (error) {
+            logger.error(error, `Error in /api/add-docs for file: ${req.body.filePath}`);
+            res.status(500).json({ error: (error as Error).message });
         }
-        return { patch: diffContent, analysis };
-    }));
-
-    app.post('/api/branches', asyncWrapper(async (req, res) => {
-        const projectPath = await validateProjectPath(req.body.projectPath);
-        const branches = await getBranches(projectPath);
-        return branches;
-    }));
-
-    app.post('/api/add-docs', asyncWrapper(async (req, res) => {
-        const { filePath, projectPath } = req.body;
-        await validateProjectPath(projectPath);
-        const originalContent = await fs.readFile(filePath, 'utf-8');
-        const requestContext = { ...appContext, args: { path: projectPath } };
-        const newContent = await runAddDocs(originalContent, requestContext);
-        const patch = diff.createPatch(filePath, originalContent, newContent);
-        return { patch, newContent };
-    }));
-
-    app.post('/api/refactor', asyncWrapper(async (req, res) => {
-        const activeRepoPath = getActiveRepoPath(req);
-        const { filePath, prompt } = req.body;
+    });
+    
+    app.post('/api/refactor', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const { filePath, prompt } = req.body;
             const originalContent = await fs.readFile(filePath, 'utf-8');
             const requestContext = { ...appContext, args: { path: activeRepoPath } };
             const newContent = await runRefactor(filePath, prompt, requestContext);
             const patch = diff.createPatch(filePath, originalContent, newContent);
-            return { patch, newContent };
-    }));
+            res.json({ patch, newContent });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.post('/api/test', asyncWrapper(async (req, res) => {
-        const activeRepoPath = getActiveRepoPath(req);
-        const { filePath, symbol, framework } = req.body;
-        const requestContext = { ...appContext, args: { path: activeRepoPath } };
-        const newContent = await runTestGeneration(filePath, symbol, framework, requestContext);
-        return { newContent };
-    }));
+    app.post('/api/test', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const { filePath, symbol, framework } = req.body;
+            const requestContext = { ...appContext, args: { path: activeRepoPath } };
+            const newContent = await runTestGeneration(filePath, symbol, framework, requestContext);
+            res.json({ newContent });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.post('/api/apply-changes', asyncWrapper(async (req, res) => {
-        const { filePath, newContent } = req.body;
-        await fs.writeFile(filePath, newContent, 'utf-8');
-        return { success: true, message: `File ${filePath} updated.` };
-    }));
+    app.post('/api/apply-changes', async (req, res) => {
+        try {
+            const { filePath, newContent } = req.body;
+            await fs.writeFile(filePath, newContent, 'utf-8');
+            res.json({ success: true, message: `File ${filePath} updated.` });
+        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
+    });
 
-    app.get('/api/prompt-library', asyncWrapper(async (req, res) => {
+    app.get('/api/prompt-library', (req, res) => {
         // We only send the parts the UI needs, not the prompt function
         const libraryForUI = TASK_LIBRARY.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
-        return { library: libraryForUI };
-    }));
+        res.json(libraryForUI);
+    });
 
-    app.post('/api/generate', asyncWrapper(async (req, res) => {
-        const activeRepoPath = getActiveRepoPath(req);
-        const { prompt } = req.body;
-        if (!prompt) {
-            return { error: 'Prompt is required.' };
+    app.post('/api/generate', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const { prompt } = req.body;
+            if (!prompt) {
+                return res.status(400).json({ error: 'Prompt is required.' });
+            }
+            const requestContext: AppContext = { ...appContext, args: { path: activeRepoPath } };
+            // You will need to create a 'runGenerate' function similar to 'runRefactor'
+            const newContent = await runGenerate(prompt, requestContext);
+            res.json({ newContent });
+        } catch (error) {
+            logger.error(error, `Error in /api/generate`);
+            res.status(500).json({ error: (error as Error).message });
         }
-        const requestContext: AppContext = { ...appContext, args: { path: activeRepoPath } };
-        // You will need to create a 'runGenerate' function similar to 'runRefactor'
-        const newContent = await runGenerate(prompt, requestContext);
-        return { newContent };
-    }));
+    });
+
+    app.post('/api/check-init', async (req, res) => {
+        try {
+            const { projectPath } = req.body;
+            if (!projectPath) {
+                return res.status(400).json({ error: 'projectPath is required.' });
+            }
+            const initFilePath = path.join(projectPath, 'Kinch_Code.md');
+            await fs.access(initFilePath);
+            res.json({ initialized: true });
+        } catch (error) {
+            // fs.access throws if file doesn't exist
+            res.json({ initialized: false });
+        }
+    });
 
     // --- WebSocket Server ---
     wss.on('connection', (ws) => {
         logger.info('Client connected to WebSocket');
-        let conversationHistory: ChatMessage[] = [];
-        let activeRepoPath: string | null = null;
-        let currentSessionId: string | null = null;
+        const conversationHistory: ChatMessage[] = [];
         
-        const onUpdate = (update: { type: string; content: string }) => {
-            ws.send(JSON.stringify(update));
-        };
+    const onUpdate = (update: { type: string; content: string }) => {
+        ws.send(JSON.stringify(update));
+    };
 
         ws.on('message', async (message) => {
             try {
                 const data = JSON.parse(message.toString());
-
-                if (data.sessionId && !currentSessionId) {
-                    currentSessionId = data.sessionId;
-                    // Load the history for this session when it's first identified
-                    // FIX: Use data.sessionId directly, as we know it's a string here.
-                    conversationHistory = await getHistory(data.sessionId);
-                    if (conversationHistory.length > 0) {
-                        // Send the loaded history back to the client so it can catch up
-                        ws.send(JSON.stringify({ type: 'history-restored', history: conversationHistory }));
-                    }
+                let activeRepo = app.get('CODE_ANALYSIS_ROOT');
+                if (activeRepo) {
+                    activeRepo = path.resolve(activeRepo); 
+                }
+                
+                if (!activeRepo && data.type !== 'agent-task') {
+                     ws.send(JSON.stringify({ type: 'error', content: 'No active repository selected.' }));
+                     return;
                 }
 
-                if (data.projectPath && !activeRepoPath) {
-                    activeRepoPath = await validateProjectPath(data.projectPath);
-                    logger.info(`WebSocket connection now targeting repository: ${activeRepoPath}`);
-                }
-
-                if (!activeRepoPath && data.type !== 'agent-task') {
-                    ws.send(JSON.stringify({ type: 'error', content: 'No active repository selected.' }));
-                    return;
-                }
-
-                const agentContext = { ...appContext, args: { path: activeRepoPath } };
+                const agentContext = { ...appContext, args: { path: activeRepo } };
 
                 if (data.type === 'agent-task-from-library') {
                     const { taskId, inputs } = data;
@@ -294,19 +332,19 @@ export async function startServer() {
                     const { taskId } = data;
                     const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
                     runReport(agentContext, onUpdate);
+                } else if (data.type === 'start-init') {
+                    const { taskId, projectPath } = data;
+                    const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
+                    const initContext = { ...appContext, args: { path: projectPath } };
+                    runInit(initContext, onUpdate);
                 } else if (data.type === 'start-indexing') {
                     const { taskId } = data;
                     const onUpdate = (update: AgentUpdate) => ws.send(JSON.stringify({ ...update, taskId }));
                     runIndex(agentContext, onUpdate);
                 } else {
-                    if (!activeRepoPath) {
-                        ws.send(JSON.stringify({ type: 'error', content: 'Cannot start chat. No project path has been set for this session.' }));
-                        return;
-                    }
-
                     logger.info('Received chat message, checking if index is up to date...');
 
-                    const activeRepoIndexer = new Indexer(activeRepoPath);
+                    const activeRepoIndexer = new Indexer(activeRepo);
                     await activeRepoIndexer.init(); // Load its specific cache
 
                     if (!(await activeRepoIndexer.isIndexUpToDate())) {
@@ -318,7 +356,7 @@ export async function startServer() {
                     conversationHistory.push({ role: 'user', content: query });
                     const contextStr = await getChatContext(query, agentContext);
                     const prompt = constructChatPrompt(conversationHistory, contextStr);
-                    const stream = await appContext.aiProvider.invoke(prompt, true);
+                    const stream = await aiProvider.invoke(prompt, true);
 
                     ws.send(JSON.stringify({ type: 'start' }));
                     const reader = stream.getReader();

@@ -6,6 +6,7 @@
 import { scanProject } from '../../codebase/scanner.js';
 import { gatherFileContext, constructPrompt, processStream } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
+import { AgentUpdate } from '../../core/agent-core.js';
 
 /**
  * Handles the logic for generating a full codebase report.
@@ -23,7 +24,14 @@ export async function handleReportCommand(context: AppContext): Promise<void> {
   }
 
   logger.info(`Gathering context from ${files.length} files... (This may take a moment)`);
-  const fileContext = await gatherFileContext(files);
+  const onUpdate = (update: AgentUpdate) => {
+      if (update.type === 'action') {
+          // Use process.stdout.write to keep it on one line
+          process.stdout.write(`\r${update.content}`);
+      }
+  };
+  const fileContext = await gatherFileContext(files, onUpdate);
+  process.stdout.write('\n'); // Newline after finishing
 
   const reportQuery = `Analyze the entire codebase provided in the context and generate a high-level technical report. The report should include:
 1.  **Overall Architecture:** A brief description of the project's structure.

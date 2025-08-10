@@ -9,7 +9,9 @@ import { scanProject } from '../codebase/scanner.js';
 import { updateVectorIndex, getVectorIndex } from '../codebase/vectorizer.js';
 import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
-import { logger } from '../logger/index.js';  
+import { logger } from '../logger/index.js';
+import { constructInitBatchPrompt, constructInitFinalPrompt,
+         constructInitPrompt, gatherFileContext } from '../ai/index.js';
 
 const VALID_EXTENSIONS = new Set(['.ts', '.js', '.jsx', '.tsx', '.py', '.c', '.cpp', '.h', '.hpp', '.cs', '.java', '.md', '.json', '.html', '.css']);
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1MB
@@ -84,5 +86,104 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     logger.info('runIndex: Indexing finished.');
   } catch (error) {
     onUpdate({ type: 'error', content: (error as Error).message });
+  }
+}
+
+export async function runInit(context: AppContext, onUpdate: AgentCallback): Promise<void> {
+  const { logger, aiProvider, args, profile } = context;
+  const projectRoot = path.resolve(args.path || profile.cwd || '.');
+  
+  try {
+    onUpdate({ type: 'thought', content: `Initializing project at ${projectRoot}...` });
+
+    onUpdate({ type: 'thought', content: 'Scanning project files...' });
+    const allFiles = await scanProject(projectRoot);
+    
+    const files = allFiles.filter(file => {
+        const ext = path.extname(file).toLowerCase();
+        const basename = path.basename(file).toLowerCase();
+        return VALID_EXTENSIONS.has(ext) || VALID_EXTENSIONS.has(basename);
+    });
+
+    if (files.length === 0) {
+      onUpdate({ type: 'finish', content: 'No relevant files found to analyze. Kinch_Code.md not created.' });
+      return;
+    }
+
+    onUpdate({ type: 'thought', content: `Gathering context from ${files.length} relevant files...` });
+    const fileContext = await gatherFileContext(files, onUpdate);
+
+    // --- BATCHING LOGIC ---
+    const CHAR_LIMIT = 100000; // Character limit per batch
+    const contextChunks = [];
+    for (let i = 0; i < fileContext.length; i += CHAR_LIMIT) {
+        contextChunks.push(fileContext.substring(i, i + CHAR_LIMIT));
+    }
+
+    const summaries: string[] = [];
+    if (contextChunks.length > 1) {
+        onUpdate({ type: 'thought', content: `Context is large, splitting into ${contextChunks.length} batches for analysis.` });
+
+        for (let i = 0; i < contextChunks.length; i++) {
+            onUpdate({ type: 'action', content: `Analyzing batch ${i + 1} of ${contextChunks.length}...` });
+            const batchPrompt = constructInitBatchPrompt(contextChunks[i]);
+            const response = await aiProvider.invoke(batchPrompt, false); // Not streaming this part
+            const summary = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (summary) {
+                summaries.push(summary);
+            } else {
+                logger.warn(`Batch ${i + 1} did not return a summary.`);
+            }
+        }
+        onUpdate({ type: 'thought', content: 'All batches analyzed. Synthesizing summaries into the final Kinch_Code.md file...' });
+    } else {
+        onUpdate({ type: 'thought', content: 'Generating Kinch_Code.md content with AI...' });
+    }
+    
+    const finalPrompt = contextChunks.length > 1 
+        ? constructInitFinalPrompt(summaries.join('\n---\n'))
+        : constructInitPrompt(fileContext); // Use original prompt if only one chunk
+    
+    const stream = await aiProvider.invoke(finalPrompt, true);
+    onUpdate({ type: 'stream-start', content: '' });
+
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = '';
+    let accumulatedText = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullResponse += decoder.decode(value, { stream: true });
+    }
+    
+    try {
+        const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
+        for (const chunk of responseArray) {
+            const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+                onUpdate({ type: 'stream-chunk', content: text });
+                accumulatedText += text;
+            }
+        }
+    } catch (error) {
+        onUpdate({ type: 'stream-chunk', content: fullResponse });
+        accumulatedText = fullResponse;
+    }
+    
+    onUpdate({ type: 'stream-end', content: '' });
+    const kinchCodeMd = accumulatedText;
+
+    if (!kinchCodeMd) {
+      throw new Error('Failed to generate Kinch_Code.md. The AI returned an empty response.');
+    }
+    
+    onUpdate({ type: 'thought', content: 'Writing Kinch_Code.md to disk...' });
+    await fs.writeFile(path.join(projectRoot, 'Kinch_Code.md'), kinchCodeMd, 'utf-8');
+    onUpdate({ type: 'finish', content: '✅ Successfully created Kinch_Code.md' });
+
+  } catch (error) {
+     onUpdate({ type: 'error', content: (error as Error).message });
   }
 }

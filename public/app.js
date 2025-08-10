@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const indexingModal = document.getElementById('indexing-modal');
     const indexNowBtn = document.getElementById('index-now-btn');
     const indexCancelBtn = document.getElementById('index-cancel-btn');
+    const initModal = document.getElementById('init-modal');
+    const initNowBtn = document.getElementById('init-now-btn');
+    const initCancelBtn = document.getElementById('init-cancel-btn');
 
     // --- STATE MANAGEMENT ---
     const logHistory = [];
@@ -60,6 +63,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     indexCancelBtn.addEventListener('click', () => {
         indexingModal.classList.add('hidden');
+    });
+
+    initNowBtn.addEventListener('click', async () => {
+        initModal.classList.add('hidden');
+        const taskId = `task-${Date.now()}`;
+        const panel = createTab('Initializing Project', true, taskId);
+        panel.innerHTML = '<h3>Starting initialization...</h3>';
+        setTabStatus(panel, 'running');
+
+        socket.send(JSON.stringify({ 
+            type: 'start-init', 
+            taskId,
+            projectPath: window.activeProjectPath 
+        }));
+    });
+
+    initCancelBtn.addEventListener('click', () => {
+        initModal.classList.add('hidden');
     });
 
     // --- REPO SELECTOR LOGIC ---
@@ -101,6 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function selectProject(projectPath) {
+        window.activeProjectPath = projectPath; // Store for later use
         await fetch('/api/set-active-project', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -108,6 +130,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         repoSelectorOverlay.classList.add('hidden');
         appContainer.classList.remove('hidden');
+
+        // Check if project is initialized
+        const checkResponse = await fetch('/api/check-init', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectPath }),
+        });
+        const status = await checkResponse.json();
+        if (!status.initialized) {
+            initModal.classList.remove('hidden');
+        }
     }
 
     cloneForm.addEventListener('submit', async (e) => {

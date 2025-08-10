@@ -5,6 +5,7 @@
 
 import { gatherFileContext, constructPrompt, processStream } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
+import { AgentUpdate } from '../../core/agent-core.js';
 
 /**
  * Handles the logic for explaining a piece of code.
@@ -25,7 +26,13 @@ export async function handleExplainCommand(context: AppContext): Promise<void> {
   }
 
   logger.info('Gathering context from files...');
-  const fileContext = await gatherFileContext(files);
+  const onUpdate = (update: AgentUpdate) => {
+    if (update.type === 'action') {
+        process.stdout.write(`\r${update.content}`);
+    }
+  };
+  const fileContext = await gatherFileContext(files, onUpdate);
+  process.stdout.write('\n');
 
   logger.info('Constructing prompt and calling AI...');
   const prompt = constructPrompt(userQuery, fileContext);

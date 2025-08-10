@@ -289,3 +289,45 @@ ${context}
 
 Kinch_Code.md:`;
 }
+
+export function constructInitBatchPrompt(contextChunk: string): string {
+  return `You are an expert software architect. Analyze the provided batch of code files.
+Your goal is to extract key information that will be used to build a project context file (Kinch_Code.md).
+From this batch of files, identify and list the following in a concise summary:
+- Tech Stack: Any languages, frameworks, or key libraries mentioned (e.g., in package.json, import statements).
+- Project Structure: Note the purpose of any directories if it's clear from the file paths.
+- Commands: Any build/test/run scripts found (e.g., in package.json, Makefile).
+- Code Style & Conventions: Any obvious coding patterns, naming conventions, or style rules.
+- Core Files & Utilities: Point out any files that seem central or contain utility functions.
+
+Do not generate the full Kinch_Code.md file yet. Just provide a summary of your findings from this specific batch of files.
+
+<context>
+${contextChunk}
+</context>
+
+Summary of this batch:`;
+}
+
+export function constructInitFinalPrompt(summaries: string): string {
+  return `You are an expert software architect. You have been provided with several summaries, each analyzing a different part of a codebase.
+Your task is to synthesize these summaries into a single, cohesive, and well-structured Kinch_Code.md file.
+The final file should be lean, intentional, and written for an AI assistant, not a human developer. Use short, declarative bullet points.
+
+Combine the information from the provided summaries to create the following sections:
+- Tech Stack
+- Project Structure
+- Commands
+- Code Style & Conventions
+- Repository Etiquette (if information is available)
+- Core Files & Utilities
+- The "Do Not Touch" List (if information is available)
+
+Do not include any commentary or explanations outside of the markdown file structure. Your entire output should be the raw Kinch_Code.md file content.
+
+<SUMMARIES>
+${summaries}
+</SUMMARIES>
+
+Kinch_Code.md:`;
+}

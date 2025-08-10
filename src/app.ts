@@ -4,10 +4,8 @@
  */
 
 import inquirer from 'inquirer';
-import { getProfile } from './config/index.js';
-import { createAIProvider } from './ai/provider-factory.js';
+import { getAppContext } from './config/index.js';
 import { logger } from './logger/index.js';
-import { AppContext } from './types.js';
 import {
   handleChatCommand,
   handleIndexCommand,
@@ -49,6 +47,7 @@ export async function startMainMenu(): Promise<void> {
         name: 'choice',
         message: 'What would you like to do?',
         choices: [
+          'Initialize Project',
           'Execute a Task (AI Agent Mode)',
           new inquirer.Separator(),
           'Chat with the codebase',
