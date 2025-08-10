@@ -5,3 +5,5 @@
 
 declare module 'diff';
 declare module 'web-tree-sitter';
+declare module 'pino-pretty';
+declare module 'pino';

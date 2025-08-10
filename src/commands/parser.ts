@@ -13,6 +13,17 @@ import { hideBin } from 'yargs/helpers';
 export function parseArgs() {
   return yargs(hideBin(process.argv))
     .command(
+      'init [path]',
+      'Initialize a new project by creating a Kinch_Code.md file.',
+      (y) => {
+        return y.positional('path', {
+          describe: 'The path to the codebase directory',
+          type: 'string',
+          default: '.',
+        });
+      }
+    )
+    .command(
       'index [path]',
       'Analyze and cache a codebase',
       (y) => {

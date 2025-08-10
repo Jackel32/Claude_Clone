@@ -7,7 +7,7 @@ import { AIProvider } from './interface.js';
 import { ProviderConfig } from '../../config/schema.js';
 import { getEmbeddingFromCache, storeEmbeddingInCache } from '../../codebase/embedding-cache.js';
 import { RateLimiter } from '../rate-limiter.js';
-import { Logger } from 'pino';
+import { Logger } from '../../types.js';
 
 // Note: The rate-limiting logic would also move here.
 const API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';

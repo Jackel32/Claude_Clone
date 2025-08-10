@@ -271,3 +271,21 @@ ${summaries}
 
 Full README.md Report:`;
 }
+
+export function constructInitPrompt(context: string): string {
+  return `You are an expert software architect. Analyze the provided code context and generate a Kinch_Code.md file.
+This file should contain:
+- Tech Stack: A declaration of the project's tools and versions.
+- Project Structure: An outline of key directories and their roles.
+- Commands: A list of the most important npm, bash, or other scripts for building, testing, linting, and deploying the project.
+- Code Style & Conventions: Explicit guidelines on formatting, naming conventions, import/export syntax, and other stylistic rules.
+- Repository Etiquette: Instructions on branch naming, commit message formats, and whether to merge or rebase.
+- Core Files & Utilities: Pointers to essential files.
+- The "Do Not Touch" List: A critical section specifying things the AI should avoid.
+
+<context>
+${context}
+</context>
+
+Kinch_Code.md:`;
+}

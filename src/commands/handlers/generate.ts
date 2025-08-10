@@ -9,6 +9,7 @@ import { queryVectorIndex } from '../../codebase/index.js';
 import { constructGeneratePrompt } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
 import { extractCode } from './utils.js';
+import { logger } from '../../logger/index.js';
 
 /**
  * Handles the logic for generating a new code snippet.
@@ -48,7 +49,7 @@ export async function handleGenerateCommand(context: AppContext): Promise<void> 
     logger.info(`✅ Code successfully saved to ${outputPath}`);
   } else {
     logger.info('\n--- Generated Code ---');
-    console.log(finalCode);
+    logger.info(finalCode);
     logger.info('--- End of Code ---\n');
   }
 }

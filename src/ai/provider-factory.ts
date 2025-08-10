@@ -7,7 +7,7 @@ import { Profile, ProviderConfig } from '../config/schema.js';
 import { AIProvider } from './providers/interface.js';
 import { GeminiProvider } from './providers/gemini.js';
 import { AnthropicProvider } from './providers/anthropic.js';
-import { Logger } from 'pino';
+import { Logger } from '../types.js';
 
 export function createAIProvider(profile: Profile, apiKey: string, logger: Logger): AIProvider {
   const { provider = 'gemini', providers, temperature } = profile;

@@ -5,7 +5,8 @@
 
 import { handleExplainCommand, handleIndexCommand, handleReportCommand,
         handleDiffCommand, handleChatCommand, handleGenerateCommand,
-        handleRefactorCommand, handleAddDocsCommand, handleTestCommand  } from './handlers/index.js';
+        handleRefactorCommand, handleAddDocsCommand, handleTestCommand,
+        handleInitCommand    } from './handlers/index.js';
 import { getProfile } from '../config/index.js';
 import { createAIProvider } from '../ai/provider-factory.js';
 import { logger } from '../logger/index.js';
@@ -50,6 +51,9 @@ export async function executeCommand(args: any): Promise<void> {
   const command = args._[0];
 
   switch (command) {
+    case 'init':
+      await handleInitCommand(context);
+      break;
     case 'index':
       await handleIndexCommand(context);
       break;

@@ -3,10 +3,14 @@
  * @description Defines shared types and interfaces for the application.
  */
 
-// FIX: Point the import to `config/schema.ts` where Profile is exported.
 import { Profile } from './config/schema.js';
-import { AIProvider  } from './ai/providers/interface.js';
-import { Logger } from 'pino';
+import { AIProvider } from './ai/providers/interface.js';
+import { logger } from './logger/index.js';
+/**
+ * The application-wide logger type.
+ * This creates a 'Logger' type alias from the imported 'PinoLogger' type.
+ */
+export type Logger = typeof logger;
 
 /**
  * Defines the structure for a single message in a conversation.
@@ -28,7 +32,7 @@ export interface AppContext {
   aiProvider: AIProvider;
 
   /** The application's logger instance. */
-  logger: Logger;
+  logger: Logger; // Now correctly uses the 'Logger' type alias
   
   /** The raw, parsed arguments from yargs. */
   args: any;

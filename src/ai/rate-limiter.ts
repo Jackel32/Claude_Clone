@@ -3,7 +3,7 @@
  * @description A robust, professional-grade rate limiter using the 'bottleneck' library.
  */
 import Bottleneck from 'bottleneck';
-import { Logger } from 'pino';
+import { Logger } from '../types.js';
 
 const CHARS_PER_TOKEN = 4;
 

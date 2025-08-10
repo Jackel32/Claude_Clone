@@ -8,9 +8,9 @@ import { getProfile } from './config/index.js';
 import { createAIProvider } from './ai/provider-factory.js';
 import { logger } from './logger/index.js';
 import { AppContext } from './types.js';
-import { 
-  handleChatCommand, 
-  handleIndexCommand, 
+import {
+  handleChatCommand,
+  handleIndexCommand,
   handleDiffCommand,
   handleBranchesCommand,
   handleReportCommand,
@@ -19,9 +19,9 @@ import {
   handleAddDocsCommand,
   handleTestCommand,
   handleTaskCommand,
-  promptForFile
+  promptForFile,
+  handleInitCommand
 } from './commands/handlers/index.js';
-import { log } from 'console';
 
 /**
  * The main application loop that presents the interactive menu.
@@ -34,38 +34,9 @@ import { log } from 'console';
  * @returns {Promise<void>} A promise that resolves when the user chooses to exit the application.
  */
 export async function startMainMenu(): Promise<void> {
-
-  // Create the shared application context once at the start.
-  const profile = await getProfile();
-
-    const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
-  const providerConfig = profile.providers?.[activeProviderName];
-  
-  let apiKey: string | undefined;
-  // Prioritize environment variables
-  if (activeProviderName === 'gemini') {
-    apiKey = process.env.GOOGLE_API_KEY;
-  } else if (activeProviderName === 'anthropic') {
-    apiKey = process.env.ANTHROPIC_API_KEY;
-  }
-
-  // Fallback to the key in the config file
-  if (!apiKey) {
-    apiKey = providerConfig?.apiKey;
-  }
-
-  if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
-    throw new Error(`API key for provider "${activeProviderName}" not found. Please set it in your config or as an environment variable.`);
-  }
-
-  const aiProvider = createAIProvider(profile, apiKey, logger);
-
-  const baseContext: Omit<AppContext, 'args'> = {
-    profile,
-    aiProvider,
-    logger,
-  };
-
+  // Create the shared application context once using the new centralized function.
+  const baseContext = await getAppContext();
+  const { profile } = baseContext;
   const cwd = profile.cwd || '.';
 
   logger.info('Welcome to Kinch Code AI Assistant!');
@@ -97,6 +68,10 @@ export async function startMainMenu(): Promise<void> {
     ]);
 
     switch (choice) {
+      case 'Initialize Project':
+        await handleInitCommand({ ...baseContext, args: {} });
+        break;
+
       case 'Execute a Task (AI Agent Mode)':
         await handleTaskCommand({ ...baseContext, args: {} });
         break;

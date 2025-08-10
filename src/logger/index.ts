@@ -3,24 +3,27 @@
  * @description Centralized pino logger configuration.
  */
 
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
+import pino from 'pino';
 
-const pino = require('pino');
-
-let transport;
-if (process.env.NODE_ENV !== 'production') {
-  const pretty = require('pino-pretty');
-  transport = pretty({
-    colorize: true,
-    ignore: 'pid,hostname',
-    translateTime: 'SYS:h:MM:ss TT',
-  });
-}
+// Define transport options based on the environment.
+// This uses the modern transport option, which is recommended for pino v7+.
+const transport = process.env.NODE_ENV !== 'production'
+  ? {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        ignore: 'pid,hostname',
+        translateTime: 'SYS:h:MM:ss TT',
+      },
+    }
+  : undefined;
 
 /**
  * The application-wide logger instance.
+ * In production, it logs JSON to stdout.
+ * In development, it uses pino-pretty for human-readable output.
  */
 export const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
-}, transport); // Pass the transport, which will be undefined in production.
+  transport: transport,
+});

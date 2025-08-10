@@ -10,6 +10,8 @@ import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
 
+const indexInstances: Map<string, LocalIndex> = new Map();
+
 /**
  * Splits code into manageable, overlapping chunks.
  * @param {string} content - The file content.

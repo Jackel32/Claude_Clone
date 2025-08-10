@@ -6,7 +6,10 @@
 import { AppContext } from '../../types.js';
 import { runIndex } from '../../core/index-core.js';
 import { AgentUpdate } from '../../core/agent-core.js';
-
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import { constructInitPrompt, gatherFileContext } from '../../ai/index.js';
+import { scanProject } from '../../codebase/index.js';
 import * as cliProgress from 'cli-progress';
 import { logger } from '../../logger/index.js';
 
@@ -60,7 +63,31 @@ export async function handleIndexCommand(context: AppContext): Promise<void> {
   };
 
   await runIndex(context, onUpdate);
+}
 
-  // This is a final check to ensure the file counter is updated after each file is fully processed
-  // This part of the logic has been moved inside the onUpdate handler to be more reactive.
+export async function handleInitCommand(context: AppContext): Promise<void> {
+  const { logger, aiProvider, args, profile } = context;
+  const projectRoot = path.resolve(args.path || profile.cwd || '.');
+  logger.info(`Initializing project at ${projectRoot}...`);
+  const files = await scanProject(projectRoot);
+  if (files.length === 0) {
+    logger.info('No files found to analyze.');
+    return;
+  }
+  logger.info(`Gathering context from ${files.length} files...`);
+  const fileContext = await gatherFileContext(files);
+  logger.info('Constructing prompt and calling AI for analysis...');
+  const prompt = constructInitPrompt(fileContext);
+  try {
+    const response = await aiProvider.invoke(prompt, false);
+    const kinchCodeMd = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (kinchCodeMd) {
+      await fs.writeFile(path.join(projectRoot, 'Kinch_Code.md'), kinchCodeMd, 'utf-8');
+      logger.info('Successfully created Kinch_Code.md');
+    } else {
+      logger.error('Failed to generate Kinch_Code.md. The AI returned an empty response.');
+    }
+  } catch (error) {
+    logger.error(error, 'AI API Error during init command');
+  }
 }
