@@ -26,8 +26,9 @@ export class GeminiProvider implements AIProvider {
     this.temperature = temperature;
     this.logger = logger;
     this.rateLimiter = new RateLimiter(
-            rateLimit?.requestsPerMinute || 60,
-            rateLimit?.tokensPerMinute || 1000000,
+            rateLimit?.requestsPerMinute || 15,
+            rateLimit?.tokensPerMinute || 250000,
+            rateLimit?.requestsPerDay || 1000,
             logger
         );
   }
@@ -42,7 +43,7 @@ export class GeminiProvider implements AIProvider {
 
     private async makeRequestWithRetry(prompt: string, stream: boolean): Promise<any> {
         const MAX_RETRIES = 5;
-        const INITIAL_DELAY_MS = 1000;
+        const INITIAL_DELAY_MS = 5000;
 
         for (let i = 0; i < MAX_RETRIES; i++) {
             const action = stream ? 'streamGenerateContent' : 'generateContent';
@@ -83,7 +84,7 @@ export class GeminiProvider implements AIProvider {
         }
 
         const MAX_RETRIES = 5;
-        const INITIAL_DELAY_MS = 1000;
+        const INITIAL_DELAY_MS = 5000;
 
         for (let i = 0; i < MAX_RETRIES; i++) {
             const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.embeddingModel}:embedContent?key=${this.apiKey}`;

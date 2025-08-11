@@ -19,11 +19,12 @@ export const defaultConfig: Config = {
       providers: {
         gemini: {
           apiKey: 'YOUR_GOOGLE_API_KEY_HERE',
-          generation: 'gemini-2.5-flash',
+          generation: 'gemini-2.5-flash-lite',
           embedding: 'gemini-2.5-flash-embedding',
           rateLimit: {
-            requestsPerMinute: 60,
-            tokensPerMinute: 1000000,
+            requestsPerMinute: 15,
+            tokensPerMinute: 250000,
+            requestsPerDay: 1000,
           },
         },
         anthropic: {
@@ -33,6 +34,7 @@ export const defaultConfig: Config = {
           rateLimit: {
             requestsPerMinute: 20,
             tokensPerMinute: 200000,
+            requestsPerDay: 1000,
           },
         },
       },

@@ -59,6 +59,13 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
 
     // --- Process Only the Files That Changed ---
     onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} new or modified files...` });
+    
+    const vectorIndex = await getVectorIndex(projectRoot);
+    if (!(await vectorIndex.isIndexCreated())) {
+        onUpdate({ type: 'thought', content: 'Creating new vector index...' });
+        await vectorIndex.createIndex();
+    }
+
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });
     
     const failedFiles: string[] = [];
@@ -153,17 +160,21 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
 
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    let accumulatedText = '';
-
+    let fullResponse = '';
+    
+    // Step 1: Read the entire stream into a single string.
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunkStr = decoder.decode(value, { stream: true });
+        fullResponse += decoder.decode(value, { stream: true });
+    }
+    
+    // Step 2: Now that we have the full string, robustly parse it.
+    let accumulatedText = '';
+    if (fullResponse) {
         try {
-            const potentialJsonBlobs = `[${chunkStr.replace(/}\s*{/g, '},{')}]`;
-            const responseArray = JSON.parse(potentialJsonBlobs);
-
+            // Attempt to parse the entire response as a JSON array
+            const responseArray = JSON.parse(fullResponse);
             for (const chunk of responseArray) {
                 const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
                 if (text) {
@@ -171,19 +182,38 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
                     accumulatedText += text;
                 }
             }
-        } catch (error) {
-            logger.warn({ err: error, chunk: chunkStr }, 'Could not parse stream chunk as JSON');
-            if (!chunkStr.includes('{')) {
-                 onUpdate({ type: 'stream-chunk', content: chunkStr });
-                 accumulatedText += chunkStr;
+        } catch (e) {
+            // If parsing the whole thing fails, fall back to finding individual objects
+            logger.warn('Could not parse stream as a single JSON array, attempting to parse individual objects.');
+            const jsonObjects = fullResponse.match(/{[\s\S]*?}/g);
+            if (jsonObjects) {
+                for (const jsonObjStr of jsonObjects) {
+                    try {
+                        const chunk = JSON.parse(jsonObjStr);
+                        const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (text) {
+                            onUpdate({ type: 'stream-chunk', content: text });
+                            accumulatedText += text;
+                        }
+                    } catch (parseErr) {
+                        logger.warn({ err: parseErr, jsonObjStr }, 'Failed to parse a JSON-like chunk from the stream.');
+                    }
+                }
             }
+        }
+        
+        // If no valid JSON content was extracted by either method, treat the whole response as raw text.
+        if (!accumulatedText && !fullResponse.includes('candidates')) {
+            logger.warn('Stream did not contain valid JSON parts, treating as raw text.');
+            onUpdate({ type: 'stream-chunk', content: fullResponse });
+            accumulatedText = fullResponse;
         }
     }
     
     onUpdate({ type: 'stream-end', content: '' });
     const kinchCodeMd = accumulatedText;
 
-    if (!kinchCodeMd) {
+    if (!kinchCodeMd.trim()) {
       throw new Error('Failed to generate Kinch_Code.md. The AI returned an empty response.');
     }
     

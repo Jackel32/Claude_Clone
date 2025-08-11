@@ -11,6 +11,7 @@ export interface ProviderConfig {
   rateLimit?: {
     requestsPerMinute?: number;
     tokensPerMinute?: number;
+    requestsPerDay?: number;
   };
 }
 

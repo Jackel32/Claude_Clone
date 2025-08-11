@@ -13,11 +13,12 @@ function estimateTokens(text: string): number {
 }
 
 export class RateLimiter {
-    // We will now have two separate, independent limiters.
+    // We will now have three separate, independent limiters.
     private rpmLimiter: Bottleneck;
     private tpmLimiter: Bottleneck;
+    private rpdLimiter: Bottleneck;
 
-    constructor(requestsPerMinute: number, tokensPerMinute: number, logger: Logger) {
+    constructor(requestsPerMinute: number, tokensPerMinute: number, requestsPerDay: number, logger: Logger) {
         // This limiter only cares about the number of requests per minute.
         this.rpmLimiter = new Bottleneck({
             reservoir: requestsPerMinute,
@@ -33,13 +34,21 @@ export class RateLimiter {
             reservoirRefreshInterval: 60 * 1000,
         });
 
+        // This new limiter handles the daily request quota.
+        this.rpdLimiter = new Bottleneck({
+            reservoir: requestsPerDay,
+            reservoirRefreshAmount: requestsPerDay,
+            reservoirRefreshInterval: 24 * 60 * 60 * 1000, // 24 hours
+        });
+
         // Attach debug event listeners
+        this.rpdLimiter.on('debug', (msg, data) => logger.debug(`RPD Limiter: ${msg}`));
         this.rpmLimiter.on('debug', (msg, data) => logger.debug(`RPM Limiter: ${msg}`));
         this.tpmLimiter.on('debug', (msg, data) => logger.debug(`TPM Limiter: ${msg}`));
     }
 
     /**
-     * Schedules a function to be executed when both RPM and TPM rate limits allow.
+     * Schedules a function to be executed when all rate limits (RPD, RPM, TPM) allow.
      * @param func The async function to execute (e.g., an API call).
      * @param prompt The prompt string to estimate token weight.
      * @returns The result of the executed function.
@@ -47,11 +56,11 @@ export class RateLimiter {
     schedule<T>(func: () => Promise<T>, prompt: string): Promise<T> {
         const tokens = estimateTokens(prompt);
         
-        // This is the new, correct nested scheduling pattern.
-        return this.tpmLimiter.schedule({ weight: tokens }, () => {
-            // Once the token limit has a slot, we then schedule based on the request limit.
-            // The request limit always has a weight of 1.
-            return this.rpmLimiter.schedule({ weight: 1 }, func);
+        // This is the new, correct nested scheduling pattern for all three limits.
+        return this.rpdLimiter.schedule({ weight: 1 }, () => {
+            return this.tpmLimiter.schedule({ weight: tokens }, () => {
+                return this.rpmLimiter.schedule({ weight: 1 }, func);
+            });
         });
     }
 }
