@@ -98,7 +98,7 @@ export async function queryVectorIndexRaw(projectRoot: string, query: string, cl
     }
     const vectorIndex = await getVectorIndex(projectRoot);
     const queryVector = await client.embed(query, projectRoot);
-    return await vectorIndex.queryItems(queryVector, topK);
+    return await vectorIndex.queryItems(queryVector, query, topK);
 }
 
 /**
