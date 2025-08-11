@@ -4,7 +4,7 @@
  */
 import * as path from 'path';
 import { promises as fs } from 'fs';
-import { Indexer } from '../codebase/indexer.js'; // Use the new Indexer class
+import { getIndexer } from '../codebase/indexer.js';
 import { scanProject } from '../codebase/scanner.js';
 import { updateVectorIndex, getVectorIndex } from '../codebase/vectorizer.js';
 import { AppContext } from '../types.js';
@@ -19,11 +19,9 @@ const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1MB
 export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
   const { logger, aiProvider, args, profile } = context;
   const projectRoot = path.resolve(args.path || profile.cwd || '.');
-  const indexer = new Indexer(projectRoot);
+  const indexer = await getIndexer(projectRoot);
 
-  try {
-    await indexer.init();
-    
+  try {  
     onUpdate({ type: 'thought', content: `Scanning project at ${projectRoot}...` });
     const allFiles = await scanProject(projectRoot);
     const currentFiles = allFiles.filter(file => VALID_EXTENSIONS.has(path.extname(file).toLowerCase()));
@@ -32,22 +30,23 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     // --- Efficiently Handle Deleted Files ---
     const cachedFiles = Object.keys(indexer.getCache());
     const deletedFiles = cachedFiles.filter(file => !currentFiles.includes(file));
+    let filesToIndex: string[] = [];
 
     if (deletedFiles.length > 0) {
-      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing from cache and recreating vector index...` });
+      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. A full re-index is required.` });
       indexer.removeEntries(deletedFiles);
       const vectorIndex = await getVectorIndex(projectRoot);
       if (await vectorIndex.isIndexCreated()) {
         await vectorIndex.deleteIndex();
       }
-    }
-
-    // --- Efficiently Find New and Modified Files ---
-    const filesToIndex: string[] = [];
-    onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
-    for (const file of currentFiles) {
-      if (await indexer.isEntryStale(file)) {
-        filesToIndex.push(file);
+      filesToIndex = [...currentFiles]; // Re-index everything
+    } else {
+      // --- Efficiently Find New and Modified Files ---
+      onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
+      for (const file of currentFiles) {
+        if (await indexer.isEntryStale(file)) {
+          filesToIndex.push(file);
+        }
       }
     }
     

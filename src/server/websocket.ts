@@ -11,7 +11,7 @@ import { runAgent, AgentUpdate } from '../core/agent-core.js';
 import { runReport } from '../core/report-core.js';
 import { runIndex, runInit } from '../core/index-core.js';
 import { logger } from '../logger/index.js';
-import { Indexer } from '../codebase/indexer.js';
+import { getIndexer } from '../codebase/indexer.js';
 import { getChatContext } from '../core/chat-core.js';
 import { constructChatPrompt } from '../ai/index.js';
 import { TASK_LIBRARY } from '../ai/prompt-library.js';
@@ -101,14 +101,25 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                     }
 
                     case 'chat': {
-                        const indexer = new Indexer(activeRepo);
-                        await indexer.init();
+                        const indexer = await getIndexer(activeRepo); // Use singleton getter
 
+                        // If index is out of date, update it automatically inside this handler
                         if (!(await indexer.isIndexUpToDate())) {
-                            ws.send(JSON.stringify({ type: 'index-required' }));
-                            return;
+                            ws.send(JSON.stringify({ type: 'start' }));
+                            ws.send(JSON.stringify({ type: 'chunk', content: 'Project index is out of date. Updating now, please wait...\n\n' }));
+
+                            // Create a temporary callback to stream indexing progress directly to the chat window
+                            const indexCallback = (update: AgentUpdate) => {
+                                if (update.type === 'thought' || update.type === 'action' || update.type === 'finish' || update.type === 'error') {
+                                    ws.send(JSON.stringify({ type: 'chunk', content: `[INDEX] ${update.content}\n` }));
+                                }
+                            };
+                            
+                            await runIndex(agentContext, indexCallback);
+                            ws.send(JSON.stringify({ type: 'chunk', content: '\nIndexing complete. Now processing your request...\n\n' }));
                         }
 
+                        // --- Original chat logic now proceeds with an up-to-date index ---
                         const query = data.content;
                         conversationHistory.push({ role: 'user', content: query });
 
@@ -129,7 +140,8 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                         }
                         
                         try {
-                            const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
+                            const jsonArrayString = `[${fullResponse.replace(/}\s*{/g, '},{')}]`;
+                            const responseArray = JSON.parse(jsonArrayString);
                             for (const chunk of responseArray) {
                                 const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
                                 if (text) {
@@ -140,6 +152,7 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                         } catch (error) {
                              ws.send(JSON.stringify({ type: 'chunk', content: fullResponse }));
                              accumulatedText = fullResponse;
+                             logger.warn('Could not parse AI stream as JSON, sending raw text.');
                         }
 
                         conversationHistory.push({ role: 'assistant', content: accumulatedText });

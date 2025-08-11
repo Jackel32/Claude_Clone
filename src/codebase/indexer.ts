@@ -27,6 +27,9 @@ function getHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
+// This map will store the singleton instance for each project.
+const indexerInstances: Map<string, Indexer> = new Map();
+
 export class Indexer {
   private projectRoot: string;
   private cachePath: string | null = null;
@@ -87,14 +90,15 @@ export class Indexer {
 
     const allFiles = await scanProject(this.projectRoot);
     const files = allFiles.filter(file => VALID_EXTENSIONS.has(path.extname(file).toLowerCase()));
+    const cachedFiles = Object.keys(this.cache);
 
-    if (files.length === 0) {
-      logger.info('No relevant files to check, index is considered up to date.');
+    if (files.length === 0 && cachedFiles.length === 0) {
+      logger.info('No relevant files and cache is empty, index is considered up to date.');
       return true;
     }
     
-    if (files.length !== Object.keys(this.cache).length) {
-        logger.info(`File count mismatch. On disk: ${files.length}, in cache: ${Object.keys(this.cache).length}. Index is stale.`);
+    if (files.length !== cachedFiles.length) {
+        logger.info(`File count mismatch. On disk: ${files.length}, in cache: ${cachedFiles.length}. Index is stale.`);
         return false;
     }
 
@@ -132,4 +136,20 @@ export class Indexer {
       return true;
     }
   }
+}
+
+/**
+ * Gets the singleton Indexer instance for a given project root.
+ * Initializes the indexer if it's the first time it's being requested.
+ * @param projectRoot The root directory of the project.
+ * @returns A promise that resolves to the initialized Indexer instance.
+ */
+export async function getIndexer(projectRoot: string): Promise<Indexer> {
+    if (indexerInstances.has(projectRoot)) {
+        return indexerInstances.get(projectRoot)!;
+    }
+    const newIndexer = new Indexer(projectRoot);
+    await newIndexer.init();
+    indexerInstances.set(projectRoot, newIndexer);
+    return newIndexer;
 }
