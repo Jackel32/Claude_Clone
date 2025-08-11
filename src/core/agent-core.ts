@@ -6,19 +6,12 @@
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js'; // Import constructPlanPrompt
+import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js';
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
-import {
-  scanProject,
-  listSymbolsInFile,
-  getSymbolContent,
-} from '../codebase/index.js'; // Import code intelligence functions
-import {
-  getDiffBetweenCommits,
-  getRecentCommits,
-} from '../fileops/index.js'; // Import Git functions
-import inquirer from 'inquirer';
+import { scanProject, listSymbolsInFile, getSymbolContent } from '../codebase/index.js';
+import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
+import inquirer from 'inquirer'; // Note: This creates a CLI dependency
 
 const execAsync = promisify(exec);
 
@@ -32,7 +25,7 @@ export type AgentCallback = (update: AgentUpdate) => void;
 export async function runAgent(userTask: string, context: AppContext, onUpdate: AgentCallback) {
   const { logger, aiProvider } = context;
 
-  const files = await scanProject(context.args.path);
+  const files = await scanProject(context.args.path || '.');
   const initialContext = files.join('\n');
   let history = '';
   const maxTurns = 10;
@@ -51,7 +44,7 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
         const errorMessage = `Error: Your last response was not valid JSON. Please correct the syntax and provide a single, valid JSON object with 'thought' and 'action'. Error details: ${(parseError as Error).message}`;
         onUpdate({ type: 'thought', content: 'Received malformed JSON, attempting to self-correct...' });
         history += `\nObservation: ${errorMessage}`;
-        continue; // Skip the rest of this turn and let the AI try again
+        continue;
       }
 
       if (!responseJson || typeof responseJson.thought !== 'string' || typeof responseJson.action !== 'object' || responseJson.action === null || typeof responseJson.action.tool !== 'string') {
@@ -74,7 +67,6 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
       try {
         switch (action.tool) {
           case 'writeFile':
-            // Validate that the required arguments exist
             if (typeof action.path !== 'string' || typeof action.content !== 'string') {
               throw new Error("Action 'writeFile' is missing 'path' or 'content'.");
             }
@@ -83,7 +75,6 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
             break;
 
           case 'executeCommand':
-            // Validate the required argument
             if (typeof action.command !== 'string') {
                 throw new Error("Action 'executeCommand' is missing 'command'.");
             }
@@ -92,7 +83,6 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
             break;
 
           case 'readFile':
-            // Validate the required argument
             if (typeof action.path !== 'string') {
                 throw new Error("Action 'readFile' is missing 'path'.");
             }
@@ -127,8 +117,17 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
             const commits = await getRecentCommits(context.args.path || '.');
             observation = `Recent commits:\n${commits.join('\n')}`;
             break;
+            
+          case 'getGitDiff':
+            if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
+              throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
+            }
+            observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
+            break;
 
           case 'askUser':
+            // NOTE: This introduces a CLI dependency into the core agent logic.
+            // A more advanced refactor would involve a custom event that the UI layer would handle.
             if (typeof action.question !== 'string') {
               throw new Error("Action 'askUser' is missing a 'question'.");
             }
@@ -145,19 +144,16 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
               throw new Error("Action 'createPlan' is missing a 'goal'.");
             }
 
-            // 1. Generate the plan from the AI
             onUpdate({ type: 'thought', content: `Generating a plan for the goal: "${action.goal}"` });
             const planPrompt = constructPlanPrompt(action.goal, initialContext);
             const planResponse = await aiProvider.invoke(planPrompt, false);
             const rawPlan = planResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (!rawPlan) throw new Error("Could not generate a plan.");
 
-            // 2. Parse the plan
             const plan = JSON.parse(extractJson(rawPlan)) as PlanStep[];
             const planObservations: string[] = [];
             onUpdate({ type: 'thought', content: `Plan generated with ${plan.length} steps. Now executing...` });
 
-            // 3. Execute each step in the plan sequentially
             for (let i = 0; i < plan.length; i++) {
               const step = plan[i];
               onUpdate({ type: 'thought', content: `Step ${i + 1}/${plan.length}: ${step.reasoning}` });
@@ -188,31 +184,25 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
                 const err = e as Error;
                 const errorResult = `Step ${i + 1} (${step.operation}) Failed: ${err.message}`;
                 planObservations.push(errorResult);
-                // Stop the plan execution on the first error
                 observation = `Plan execution failed. ${errorResult}\n\nCompleted Observations:\n${planObservations.join('\n')}`;
-                throw new Error(observation); // Throw to exit the plan loop and report failure
+                throw new Error(observation);
               }
             }
             
-            // 4. Report the final result
             observation = `Successfully executed all ${plan.length} steps of the plan.\n\nObservations:\n${planObservations.join('\n')}`;
             break;
           }
-
-          case 'getGitDiff':
-             if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
-              throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
-            }
-            observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
-            break;
-
+            
           default:
             observation = `Error: Unknown tool "${action.tool}"`;
         }
+        onUpdate({ type: 'observation', content: observation });
+        history += `\nObservation: ${observation}`;
       } catch (e) {
         const err = e as Error;
-        onUpdate({ type: 'error', content: `Action [${action.tool}] Failed: ${err.message}` });
-        history += `\nError: ${err.message}`;
+        const errorMessage = `Action [${action.tool}] Failed: ${err.message}`;
+        onUpdate({ type: 'error', content: errorMessage });
+        history += `\nError: ${errorMessage}`;
       }
 
     } catch (error) {
