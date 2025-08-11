@@ -10,6 +10,7 @@ import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
 
+// This map will store the singleton instance for each project.
 const indexInstances: Map<string, LocalIndex> = new Map();
 
 /**
@@ -36,7 +37,11 @@ export async function getVectorIndex(projectRoot: string): Promise<LocalIndex> {
     }
     const projectCacheDir = await getProjectCacheDir(projectRoot);
     const indexPath = path.join(projectCacheDir, 'vector_index');
-    return new LocalIndex(indexPath);
+    
+    // Create the new instance, store it in the map for reuse, and then return it.
+    const newIndex = new LocalIndex(indexPath);
+    indexInstances.set(projectRoot, newIndex);
+    return newIndex;
 }
 
 /**
@@ -50,9 +55,11 @@ export async function updateVectorIndex(
     filePath: string,
     content: string,
     client: AIProvider,
-    onUpdate: AgentCallback // Add the onUpdate callback parameter
+    onUpdate: AgentCallback
 ): Promise<void> {
     const vectorIndex = await getVectorIndex(projectRoot);
+    // The createIndex call is now primarily handled by runIndex, 
+    // but this ensures it exists if called directly.
     if (!(await vectorIndex.isIndexCreated())) {
         await vectorIndex.createIndex();
     }
