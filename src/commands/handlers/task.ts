@@ -5,10 +5,10 @@
 
 import { AppContext } from '../../types.js';
 import { runAgent, AgentUpdate } from '../../core/agent-core.js';
+import inquirer from 'inquirer';
 
 export async function handleTaskCommand(context: AppContext): Promise<void> {
   const { logger } = context;
-  const { default: inquirer } = await import('inquirer');
   const ora = (await import('ora')).default;
   
   const { userTask } = await inquirer.prompt([{
@@ -44,8 +44,19 @@ export async function handleTaskCommand(context: AppContext): Promise<void> {
     }
   };
 
+  const onPrompt = async (question: string): Promise<string> => {
+      spinner.stop(); // Pause spinner for user input
+      const { answer } = await inquirer.prompt([{
+          type: 'input',
+          name: 'answer',
+          message: question,
+      }]);
+      spinner.start('🤔 AI is thinking...'); // Resume spinner
+      return answer;
+  };
+
   try {
-    await runAgent(userTask, context, onUpdate);
+    await runAgent(userTask, context, onUpdate, onPrompt);
   } catch (error) {
     spinner.fail('An unexpected error occurred in the agent.');
     logger.error(error);

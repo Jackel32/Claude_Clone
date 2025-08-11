@@ -9,7 +9,7 @@ import { promisify } from 'util';
 import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js';
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
-import { scanProject, listSymbolsInFile, getSymbolContent } from '../codebase/index.js';
+import { getSymbolContent, listSymbolsInFile, scanProject } from '../codebase/index.js';
 import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
 import inquirer from 'inquirer'; // Note: This creates a CLI dependency
 
@@ -22,9 +22,13 @@ export type AgentUpdate = {
 };
 export type AgentCallback = (update: AgentUpdate) => void;
 
-export async function runAgent(userTask: string, context: AppContext, onUpdate: AgentCallback) {
+export async function runAgent(
+    userTask: string,
+    context: AppContext,
+    onUpdate: AgentCallback,
+    onPrompt: (question: string) => Promise<string>
+) {  
   const { logger, aiProvider } = context;
-
   const files = await scanProject(context.args.path || '.');
   const initialContext = files.join('\n');
   let history = '';
@@ -126,16 +130,11 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
             break;
 
           case 'askUser':
-            // NOTE: This introduces a CLI dependency into the core agent logic.
-            // A more advanced refactor would involve a custom event that the UI layer would handle.
             if (typeof action.question !== 'string') {
               throw new Error("Action 'askUser' is missing a 'question'.");
             }
-            const { answer } = await inquirer.prompt([{
-              type: 'input',
-              name: 'answer',
-              message: action.question,
-            }]);
+            // Use the callback instead of inquirer
+            const answer = await onPrompt(action.question);
             observation = `The user responded: "${answer}"`;
             break;
 
