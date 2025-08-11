@@ -9,7 +9,7 @@ export async function getChatContext(query: string, context: AppContext): Promis
     const projectRoot = path.resolve(args.path || profile.cwd || '.');
     const topK = profile.rag?.topK || 3;
 
-    const symbolMatch = query.match(/(?:explain|what is|tell me about|show me)\s+\`?(\w+)\`?/i);
+    const symbolMatch = query.match(/(?:explain|what is|tell me about|show me)\s+(?:the\s+)?\`?(\w+)\`?/i);
     
     // First, always perform a vector search to find relevant files
     const vectorResults = await queryVectorIndexRaw(projectRoot, query, aiProvider, topK);

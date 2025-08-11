@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let assistantMessageElement = null;
     let pendingUserMessage = null;
     let lastSentChatMessage = null;
+    let isProjectLoading = false; // Flag to prevent race conditions
 
     // --- INITIALIZATION ---
     initializeRepoSelector();
@@ -90,56 +91,88 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const projects = await response.json();
             if (projects.error) throw new Error(projects.error);
-
+    
+            // --- Event Delegation for Cloned Repos ---
             repoList.innerHTML = '';
             if (projects.cloned && projects.cloned.length > 0) {
                 projects.cloned.forEach(repo => {
                     const li = document.createElement('li');
                     li.textContent = repo.name;
-                    li.onclick = () => selectProject(repo.path);
+                    li.dataset.path = repo.path; // Store path in a data attribute
                     repoList.appendChild(li);
                 });
             } else {
                 repoList.innerHTML = '<li>No repositories cloned yet.</li>';
             }
-
+    
+            // --- Event Delegation for Local Projects ---
             localList.innerHTML = '';
             if (projects.local && projects.local.length > 0) {
                 projects.local.forEach(project => {
                     const li = document.createElement('li');
                     li.textContent = project.name;
-                    li.onclick = () => selectProject(project.path);
+                    li.dataset.path = project.path; // Store path in a data attribute
                     localList.appendChild(li);
                 });
             } else {
                 localList.innerHTML = '<li>No local projects found in the mounted directory.</li>';
             }
+    
+            // --- Single Click Handler for both lists ---
+            const handleProjectClick = (event) => {
+                const target = event.target.closest('li');
+                if (target && target.dataset.path) {
+                    selectProject(target.dataset.path);
+                }
+            };
+    
+            repoList.addEventListener('click', handleProjectClick);
+            localList.addEventListener('click', handleProjectClick);
+    
         } catch (error) {
             console.error("Failed to initialize repo selector:", error);
             repoList.innerHTML = `<li>Error: ${error.message}</li>`;
             localList.innerHTML = `<li>Check server logs for details.</li>`;
         }
     }
-
+    
     async function selectProject(projectPath) {
-        window.activeProjectPath = projectPath; // Store for later use
-        await fetch('/api/set-active-project', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectPath }),
-        });
-        repoSelectorOverlay.classList.add('hidden');
-        appContainer.classList.remove('hidden');
-
-        // Check if project is initialized
-        const checkResponse = await fetch('/api/check-init', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectPath }),
-        });
-        const status = await checkResponse.json();
-        if (!status.initialized) {
-            initModal.classList.remove('hidden');
+        if (isProjectLoading) return; // Prevent concurrent selections
+        isProjectLoading = true;
+    
+        try {
+            window.activeProjectPath = projectPath; // Store for later use
+            await fetch('/api/set-active-project', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectPath }),
+            });
+            repoSelectorOverlay.classList.add('hidden');
+            appContainer.classList.remove('hidden');
+    
+            // Check if project is initialized
+            const checkResponse = await fetch('/api/check-init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectPath }),
+            });
+    
+            if (!checkResponse.ok) {
+                throw new Error(`Server error: ${checkResponse.statusText}`);
+            }
+    
+            const status = await checkResponse.json();
+            if (!status.initialized) {
+                initModal.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error("Failed to select project:", error);
+            alert(`Error selecting project: ${error.message}. Please try again.`);
+            // Reset UI to a safe state
+            repoSelectorOverlay.classList.remove('hidden');
+            appContainer.classList.add('hidden');
+        } finally {
+            isProjectLoading = false; // Release the lock
         }
     }
 
@@ -170,6 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (error) {
             alert(`Error cloning repository: ${error.message}`);
+        } finally {
             cloneButton.textContent = 'Clone';
             cloneButton.disabled = false;
         }
@@ -316,23 +350,50 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.appendChild(pre);
         }
 
-        let logText = '';
-        switch (message.type) {
-            case 'thought': logText = `[THOUGHT] ${message.content}`; break;
-            case 'action': logText = `[ACTION] ${message.content}`; break;
-            case 'observation': logText = `[OBSERVATION]\n${message.content}`; break;
-            case 'finish': logText = `✅ [FINISH] ${message.content}`; break;
-            case 'error': logText = `❌ [ERROR] ${message.content}`; break;
-            case 'stream-start': logText = '\n--- AI RESPONSE ---\n'; break;
-            case 'stream-chunk': logText = message.content; break;
-            case 'stream-end': logText = ''; break;
-            default: logText = `[INFO] ${JSON.stringify(message.content)}`; break;
+        let statusLine = panel.querySelector('.status-line');
+        if (!statusLine) {
+            statusLine = document.createElement('p');
+            statusLine.className = 'status-line';
+            panel.prepend(statusLine);
         }
 
-        if (logText) {
-             pre.textContent += logText + (message.type === 'stream-chunk' ? '' : '\n\n');
-             panel.scrollTop = panel.scrollHeight;
+        let logText = '';
+        switch (message.type) {
+            case 'thought': 
+                pre.textContent += `[THOUGHT] ${message.content}\n\n`;
+                statusLine.textContent = 'Thinking...';
+                break;
+            case 'action':
+                // Update the single status line for actions, mimicking the CLI
+                statusLine.textContent = `[ACTION] ${message.content}`;
+                return; // Return early to avoid adding to the main log
+            case 'observation': 
+                statusLine.textContent = 'Analyzing results...';
+                pre.textContent += `[OBSERVATION]\n${message.content}\n\n`; 
+                break;
+            case 'finish': 
+                statusLine.textContent = '✅ Finished';
+                pre.textContent += `✅ [FINISH] ${message.content}\n\n`; 
+                break;
+            case 'error': 
+                statusLine.textContent = '❌ Error';
+                pre.textContent += `❌ [ERROR] ${message.content}\n\n`; 
+                break;
+            case 'stream-start': 
+                statusLine.textContent = 'Receiving AI response...';
+                pre.textContent += '\n--- AI RESPONSE ---\n'; 
+                break;
+            case 'stream-chunk': 
+                pre.textContent += message.content; 
+                break;
+            case 'stream-end': 
+                pre.textContent += '\n--- End of Response ---\n\n'; 
+                break;
+            default: 
+                pre.textContent += `[INFO] ${JSON.stringify(message.content)}\n\n`; 
+                break;
         }
+        panel.scrollTop = panel.scrollHeight;
 
         if (message.type === 'finish' || message.type === 'error') {
             setTabStatus(panel, 'finished');

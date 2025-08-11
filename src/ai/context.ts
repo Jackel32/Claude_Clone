@@ -15,13 +15,13 @@ import * as path from 'path';
  * @returns A promise that resolves to a single string containing all file
  * contents, formatted for the AI prompt.
  */
-export async function gatherFileContext(filePaths: string[], onUpdate: AgentCallback): Promise<string> {
+export async function gatherFileContext(filePaths: string[], onUpdate: AgentCallback, totalFiles: number): Promise<string> {
   let contextString = '';
 
   for (let i = 0; i < filePaths.length; i++) {
     const filePath = filePaths[i];
     // Send an action update with the progress, now using the full relative path.
-    onUpdate({ type: 'action', content: `Reading ${i + 1}/${filePaths.length}: ${filePath}` });
+    onUpdate({ type: 'action', content: `Reading ${i + 1}/${totalFiles}: ${filePath}` });
     try {
       const content = await readFile(filePath);
       contextString += `<file path="${filePath}">\n${content}\n</file>\n\n`;

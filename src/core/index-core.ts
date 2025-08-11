@@ -34,11 +34,11 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     const deletedFiles = cachedFiles.filter(file => !currentFiles.includes(file));
 
     if (deletedFiles.length > 0) {
-      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing from cache and vector index...` });
+      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing from cache and recreating vector index...` });
       indexer.removeEntries(deletedFiles);
       const vectorIndex = await getVectorIndex(projectRoot);
       if (await vectorIndex.isIndexCreated()) {
-        await vectorIndex.deleteIndex(); // Simple strategy: delete vector index if any file is removed
+        await vectorIndex.deleteIndex();
       }
     }
 
@@ -60,6 +60,8 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     // --- Process Only the Files That Changed ---
     onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} new or modified files...` });
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });
+    
+    const failedFiles: string[] = [];
 
     for (let i = 0; i < filesToIndex.length; i++) {
       const file = filesToIndex[i];
@@ -76,8 +78,14 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
         await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString() }); // Updates IN-MEMORY cache
         onUpdate({ type: 'action', content: 'file-processed' }); 
       } catch (error) {
-        onUpdate({ type: 'error', content: `Could not process file ${file}: ${(error as Error).message}` });
+        const errorMessage = `Could not process file ${file}: ${(error as Error).message}`;
+        onUpdate({ type: 'error', content: errorMessage });
+        failedFiles.push(file);
       }
+    }
+    
+    if (failedFiles.length > 0) {
+        onUpdate({ type: 'thought', content: `\nFailed to process ${failedFiles.length} files:\n- ${failedFiles.join('\n- ')}` });
     }
 
     // --- Save Everything Once at the End ---
@@ -99,11 +107,7 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
     onUpdate({ type: 'thought', content: 'Scanning project files...' });
     const allFiles = await scanProject(projectRoot);
     
-    const files = allFiles.filter(file => {
-        const ext = path.extname(file).toLowerCase();
-        const basename = path.basename(file).toLowerCase();
-        return VALID_EXTENSIONS.has(ext) || VALID_EXTENSIONS.has(basename);
-    });
+    const files = allFiles.filter(file => VALID_EXTENSIONS.has(path.extname(file).toLowerCase()));
 
     if (files.length === 0) {
       onUpdate({ type: 'finish', content: 'No relevant files found to analyze. Kinch_Code.md not created.' });
@@ -111,7 +115,7 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
     }
 
     onUpdate({ type: 'thought', content: `Gathering context from ${files.length} relevant files...` });
-    const fileContext = await gatherFileContext(files, onUpdate);
+    const fileContext = await gatherFileContext(files, onUpdate, files.length);
 
     // --- BATCHING LOGIC ---
     const CHAR_LIMIT = 100000; // Character limit per batch
@@ -149,27 +153,31 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
 
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    let fullResponse = '';
     let accumulatedText = '';
 
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        fullResponse += decoder.decode(value, { stream: true });
-    }
-    
-    try {
-        const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
-        for (const chunk of responseArray) {
-            const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-                onUpdate({ type: 'stream-chunk', content: text });
-                accumulatedText += text;
+        
+        const chunkStr = decoder.decode(value, { stream: true });
+        try {
+            const potentialJsonBlobs = `[${chunkStr.replace(/}\s*{/g, '},{')}]`;
+            const responseArray = JSON.parse(potentialJsonBlobs);
+
+            for (const chunk of responseArray) {
+                const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    onUpdate({ type: 'stream-chunk', content: text });
+                    accumulatedText += text;
+                }
+            }
+        } catch (error) {
+            logger.warn({ err: error, chunk: chunkStr }, 'Could not parse stream chunk as JSON');
+            if (!chunkStr.includes('{')) {
+                 onUpdate({ type: 'stream-chunk', content: chunkStr });
+                 accumulatedText += chunkStr;
             }
         }
-    } catch (error) {
-        onUpdate({ type: 'stream-chunk', content: fullResponse });
-        accumulatedText = fullResponse;
     }
     
     onUpdate({ type: 'stream-end', content: '' });

@@ -29,7 +29,7 @@ export async function handleReportCommand(context: AppContext): Promise<void> {
           process.stdout.write(`\r${update.content}`);
       }
   };
-  const fileContext = await gatherFileContext(files, onUpdate);
+  const fileContext = await gatherFileContext(files, onUpdate, files.length);
   process.stdout.write('\n'); // Newline after finishing
 
   const reportQuery = `Analyze the entire codebase provided in the context and generate a high-level technical report. The report should include:

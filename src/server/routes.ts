@@ -114,7 +114,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
     });
 
     if (process.env.NODE_ENV === 'test') {
-        router.post('/api/test/set-active-repo', (req, res) => {
+        router.post('/test/set-active-repo', (req, res) => {
             const { repoPath } = req.body;
             req.app.set('CODE_ANALYSIS_ROOT', path.resolve(repoPath));
             logger.info(`[TEST] Active repository set to: ${req.app.get('CODE_ANALYSIS_ROOT')}`);
@@ -122,21 +122,21 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         });
     }
 
-    router.get('/api/file-tree', async (req, res) => {
+    router.get('/file-tree', async (req, res) => {
         try {
             const tree = await buildFileTree(getActiveRepoPath(req));
             res.json(tree);
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
     
-    router.get('/api/testable-file-tree', async (req, res) => {
+    router.get('/testable-file-tree', async (req, res) => {
         try {
             const tree = await buildTestableFileTree(getActiveRepoPath(req));
             res.json(tree);
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.post('/api/list-symbols', async (req, res) => {
+    router.post('/list-symbols', async (req, res) => {
         try {
             const { filePath } = req.body;
             const symbols = await listSymbolsInFile(filePath);
@@ -144,14 +144,14 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.get('/api/commits', async (req, res) => {
+    router.get('/commits', async (req, res) => {
         try {
             const commits = await getRecentCommits(getActiveRepoPath(req));
             res.json(commits);
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.post('/api/diff', async (req, res) => {
+    router.post('/diff', async (req, res) => {
         try {
             const activeRepoPath = getActiveRepoPath(req);
             const { startCommit, endCommit, baseBranch, compareBranch } = req.body;
@@ -175,7 +175,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.get('/api/branches', async (req, res) => {
+    router.get('/branches', async (req, res) => {
         try {
             const branches = await getBranches(getActiveRepoPath(req));
             res.json(branches);
@@ -184,7 +184,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         }
     });
 
-    router.post('/api/add-docs', async (req, res) => {
+    router.post('/add-docs', async (req, res) => {
         try {
             const { filePath } = req.body;
             // The server reads the file content once.
@@ -204,7 +204,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         }
     });
     
-    router.post('/api/refactor', async (req, res) => {
+    router.post('/refactor', async (req, res) => {
         try {
             const activeRepoPath = getActiveRepoPath(req);
             const { filePath, prompt } = req.body;
@@ -216,7 +216,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.post('/api/test', async (req, res) => {
+    router.post('/test', async (req, res) => {
         try {
             const activeRepoPath = getActiveRepoPath(req);
             const { filePath, symbol, framework } = req.body;
@@ -226,7 +226,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.post('/api/apply-changes', async (req, res) => {
+    router.post('/apply-changes', async (req, res) => {
         try {
             const { filePath, newContent } = req.body;
             await fs.writeFile(filePath, newContent, 'utf-8');
@@ -234,13 +234,13 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         } catch (error) { res.status(500).json({ error: (error as Error).message }); }
     });
 
-    router.get('/api/prompt-library', (req, res) => {
+    router.get('/prompt-library', (req, res) => {
         // We only send the parts the UI needs, not the prompt function
         const libraryForUI = TASK_LIBRARY.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
         res.json(libraryForUI);
     });
 
-    router.post('/api/generate', async (req, res) => {
+    router.post('/generate', async (req, res) => {
         try {
             const activeRepoPath = getActiveRepoPath(req);
             const { prompt } = req.body;
@@ -257,18 +257,28 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         }
     });
 
-    router.post('/api/check-init', async (req, res) => {
+    router.post('/check-init', async (req, res) => {
         try {
             const { projectPath } = req.body;
             if (!projectPath) {
                 return res.status(400).json({ error: 'projectPath is required.' });
             }
             const initFilePath = path.join(projectPath, 'Kinch_Code.md');
+            
+            // Log the path being checked for debugging
+            logger.info(`Checking for init file at: ${initFilePath}`);
+
             await fs.access(initFilePath);
             res.json({ initialized: true });
-        } catch (error) {
-            // fs.access throws if file doesn't exist
-            res.json({ initialized: false });
+        } catch (error: any) {
+            // Only treat "file not found" as "not initialized"
+            if (error.code === 'ENOENT') {
+                res.json({ initialized: false });
+            } else {
+                // For all other errors (e.g., permissions), return a server error
+                logger.error(error, `Error checking for init file at ${req.body.projectPath}`);
+                res.status(500).json({ error: 'Failed to check for initialization file.' });
+            }
         }
     });
     

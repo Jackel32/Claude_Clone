@@ -30,7 +30,7 @@ export async function handleExplainCommand(context: AppContext): Promise<void> {
         process.stdout.write(`\r${update.content}`);
     }
   };
-  const fileContext = await gatherFileContext(files, onUpdate);
+  const fileContext = await gatherFileContext(files, onUpdate, files.length);
   process.stdout.write('\n');
 
   logger.info('Constructing prompt and calling AI...');
