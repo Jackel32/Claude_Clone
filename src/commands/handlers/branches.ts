@@ -15,13 +15,20 @@ import { AppContext } from '../../types.js';
  * @returns The selected branch name, or null if the user cancels.
  */
 async function selectBranch(message: string, branches: string[]): Promise<string | null> {
-    const { choice } = await inquirer.prompt([{
+    // Map branch strings to the object format required by the new inquirer version.
+    const choices = [
+        ...branches.map(branch => ({ name: branch, value: branch })), 
+        new inquirer.Separator(), 
+        { name: 'Back to menu', value: null }
+    ];
+
+    const { choice } = await inquirer.prompt({
         type: 'list',
         name: 'choice',
         message,
         pageSize: 15,
-        choices: [...branches, new inquirer.Separator(), { name: 'Back to menu', value: null }]
-    }]);
+        choices: choices
+    });
     return choice;
 }
 
