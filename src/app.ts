@@ -4,7 +4,7 @@
  */
 
 import inquirer from 'inquirer';
-import { getAppContext } from './config/index.js';
+import { createAppContext } from './config/index.js';
 import { logger } from './logger/index.js';
 import {
   handleChatCommand,
@@ -32,8 +32,7 @@ import {
  * @returns {Promise<void>} A promise that resolves when the user chooses to exit the application.
  */
 export async function startMainMenu(): Promise<void> {
-  // Create the shared application context once using the new centralized function.
-  const baseContext = await getAppContext();
+  const baseContext = await createAppContext();
   const { profile } = baseContext;
   const cwd = profile.cwd || '.';
 

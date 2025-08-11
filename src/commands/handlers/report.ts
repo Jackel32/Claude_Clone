@@ -26,7 +26,6 @@ export async function handleReportCommand(context: AppContext): Promise<void> {
   logger.info(`Gathering context from ${files.length} files... (This may take a moment)`);
   const onUpdate = (update: AgentUpdate) => {
       if (update.type === 'action') {
-          // Use process.stdout.write to keep it on one line
           process.stdout.write(`\r${update.content}`);
       }
   };

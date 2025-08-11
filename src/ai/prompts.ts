@@ -185,6 +185,13 @@ You have access to the following tools:
 - "writeFile": Writes/overwrites a file. Args: "path", "content".
 - "executeCommand": Executes a shell command. Args: "command".
 - "readFile": Reads a file to gather information. Args: "path".
+- "listFiles": Lists all files in the current project. Args: none.
+- "listSymbols": Lists all functions and classes in a file. Args: "path".
+- "readSymbol": Reads the content of a specific function or class. Args: "path", "symbolName".
+- "getGitDiff": Gets the diff between two commits. Args: "startCommit", "endCommit".
+- "getRecentCommits": Gets a list of recent commits. Args: none.
+- "askUser": Asks the user a question and gets their response. Args: "question".
+- "createPlan": Creates a step-by-step plan for a high-level goal. Args: "goal".
 - "finish": Call this when the task is complete. Args: "summary".
 
 On each turn, you must respond with a JSON object containing your "thought" process and the next "action" you will take.

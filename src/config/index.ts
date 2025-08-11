@@ -18,7 +18,6 @@ const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 export const CACHE_DIR = path.join(CONFIG_DIR, 'cache');
 
 let loadedConfig: Config | null = null;
-let appContextCache: Omit<AppContext, 'args'> | null = null;
 
 /**
  * Asynchronously ensures the configuration directory and files exist.
@@ -92,16 +91,12 @@ export async function getProfile(profileName?: string): Promise<Profile> {
 }
 
 /**
- * Creates and caches the application context, including the AI provider.
+ * Creates the application context, including the AI provider.
  * This is the single source of truth for app-wide configuration.
  * @returns {Promise<Omit<AppContext, 'args'>>} The application context.
  */
-export async function getAppContext(): Promise<Omit<AppContext, 'args'>> {
-    if (appContextCache) {
-        return appContextCache;
-    }
-
-    const profile = await getProfile();
+export async function createAppContext(args: any = {}): Promise<AppContext> {
+    const profile = await getProfile(args.profile);
     const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
     const providerConfig = profile.providers?.[activeProviderName];
 
@@ -129,11 +124,10 @@ export async function getAppContext(): Promise<Omit<AppContext, 'args'>> {
 
     const aiProvider = createAIProvider(profile, apiKey, logger);
 
-    appContextCache = {
+    return {
         profile,
         aiProvider,
         logger,
+        args,
     };
-
-    return appContextCache;
 }

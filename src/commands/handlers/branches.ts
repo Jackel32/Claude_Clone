@@ -20,7 +20,6 @@ async function selectBranch(message: string, branches: string[]): Promise<string
         name: 'choice',
         message,
         pageSize: 15,
-        // Inquirer can directly use an array of strings as choices.
         choices: [...branches, new inquirer.Separator(), { name: 'Back to menu', value: null }]
     }]);
     return choice;
@@ -34,12 +33,10 @@ export async function handleBranchesCommand(context: AppContext): Promise<void> 
   const { logger, aiProvider, args } = context;
   const cwd = args.path || '.';
 
-  // 1. Verify it's a git repository
   if (!(await isGitRepository(cwd))) {
     throw new Error('This is not a git repository. The "branches" command requires git.');
   }
   
-  // 2. Get all available branches
   const branches = await getBranches(cwd);
   if (branches.length < 2) {
       logger.info('You need at least two branches to run a comparison.');
@@ -48,16 +45,13 @@ export async function handleBranchesCommand(context: AppContext): Promise<void> 
 
   logger.info('Select two branches to compare their differences.');
   
-  // 3. Prompt user to select the base branch
   const baseBranch = await selectBranch('Select the BASE branch (e.g., main or develop):', branches);
-  if (!baseBranch) return; // User selected 'Back'
+  if (!baseBranch) return;
 
-  // 4. Prompt user to select the compare branch
   const remainingBranches = branches.filter(b => b !== baseBranch);
   const compareBranch = await selectBranch('Select the COMPARE branch (e.g., your feature branch):', remainingBranches);
   if (!compareBranch) return;
 
-  // 5. Get the diff between the two branches
   const diffContent = await getDiffBetweenBranches(baseBranch, compareBranch, cwd);
 
   if (!diffContent.trim()) {
@@ -65,7 +59,6 @@ export async function handleBranchesCommand(context: AppContext): Promise<void> 
     return;
   }
   
-  // 6. Send the diff to the AI for analysis and stream the response
   const analysisPrompt = constructDiffAnalysisPrompt(diffContent);
   
   try {

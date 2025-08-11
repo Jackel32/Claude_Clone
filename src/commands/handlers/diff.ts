@@ -3,7 +3,7 @@
  * @description Interactive handler for the 'diff' command.
  */
 
-import inquirer from 'inquirer'; // Use the standard import for inquirer@8
+import inquirer from 'inquirer';
 import { isGitRepository, getRecentCommits, getDiffBetweenCommits } from '../../fileops/index.js';
 import { constructPrompt, processStream } from '../../ai/index.js';
 import { AppContext } from '../../types.js';

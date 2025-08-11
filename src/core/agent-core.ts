@@ -6,10 +6,19 @@
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { constructReActPrompt } from '../ai/index.js';
+import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js'; // Import constructPlanPrompt
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
-import { scanProject } from '../codebase/index.js';
+import {
+  scanProject,
+  listSymbolsInFile,
+  getSymbolContent,
+} from '../codebase/index.js'; // Import code intelligence functions
+import {
+  getDiffBetweenCommits,
+  getRecentCommits,
+} from '../fileops/index.js'; // Import Git functions
+import inquirer from 'inquirer';
 
 const execAsync = promisify(exec);
 
@@ -89,7 +98,114 @@ export async function runAgent(userTask: string, context: AppContext, onUpdate: 
             }
             observation = await fs.readFile(action.path, 'utf-8');
             break;
+
+          case 'listFiles':
+            const files = await scanProject(context.args.path || '.');
+            observation = `The following files were found in the project:\n${files.join('\n')}`;
+            break;
+
+          case 'listSymbols':
+            if (typeof action.path !== 'string') {
+              throw new Error("Action 'listSymbols' is missing 'path'.");
+            }
+            const symbols = await listSymbolsInFile(action.path);
+            observation = `The file "${action.path}" contains the following symbols:\n${symbols.join('\n')}`;
+            break;
             
+          case 'readSymbol':
+            if (typeof action.path !== 'string' || typeof action.symbolName !== 'string') {
+              throw new Error("Action 'readSymbol' is missing 'path' or 'symbolName'.");
+            }
+            const content = await getSymbolContent(action.path, action.symbolName);
+            if (!content) {
+              throw new Error(`Symbol "${action.symbolName}" not found in "${action.path}".`);
+            }
+            observation = `Content of symbol "${action.symbolName}" from "${action.path}":\n${content}`;
+            break;
+
+          case 'getRecentCommits':
+            const commits = await getRecentCommits(context.args.path || '.');
+            observation = `Recent commits:\n${commits.join('\n')}`;
+            break;
+
+          case 'askUser':
+            if (typeof action.question !== 'string') {
+              throw new Error("Action 'askUser' is missing a 'question'.");
+            }
+            const { answer } = await inquirer.prompt([{
+              type: 'input',
+              name: 'answer',
+              message: action.question,
+            }]);
+            observation = `The user responded: "${answer}"`;
+            break;
+
+          case 'createPlan': { // Use a block scope for new variables
+            if (typeof action.goal !== 'string') {
+              throw new Error("Action 'createPlan' is missing a 'goal'.");
+            }
+
+            // 1. Generate the plan from the AI
+            onUpdate({ type: 'thought', content: `Generating a plan for the goal: "${action.goal}"` });
+            const planPrompt = constructPlanPrompt(action.goal, initialContext);
+            const planResponse = await aiProvider.invoke(planPrompt, false);
+            const rawPlan = planResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawPlan) throw new Error("Could not generate a plan.");
+
+            // 2. Parse the plan
+            const plan = JSON.parse(extractJson(rawPlan)) as PlanStep[];
+            const planObservations: string[] = [];
+            onUpdate({ type: 'thought', content: `Plan generated with ${plan.length} steps. Now executing...` });
+
+            // 3. Execute each step in the plan sequentially
+            for (let i = 0; i < plan.length; i++) {
+              const step = plan[i];
+              onUpdate({ type: 'thought', content: `Step ${i + 1}/${plan.length}: ${step.reasoning}` });
+              onUpdate({ type: 'action', content: `[${step.operation}] Executing...` });
+
+              try {
+                let stepResult = '';
+                switch (step.operation) {
+                  case 'writeFile':
+                    if (!step.path || !step.content) throw new Error("Plan step 'writeFile' is missing 'path' or 'content'.");
+                    await fs.writeFile(step.path, step.content, 'utf-8');
+                    stepResult = `Successfully wrote to ${step.path}.`;
+                    break;
+                  case 'executeCommand':
+                    if (!step.command) throw new Error("Plan step 'executeCommand' is missing 'command'.");
+                    const { stdout } = await execAsync(step.command);
+                    stepResult = `Command output:\n${stdout}`;
+                    break;
+                  case 'readFile':
+                    if (!step.path) throw new Error("Plan step 'readFile' is missing 'path'.");
+                    stepResult = await fs.readFile(step.path, 'utf-8');
+                    break;
+                  default:
+                    stepResult = `Error: Unknown operation "${step.operation}" in plan.`;
+                }
+                planObservations.push(`Step ${i + 1} (${step.operation}) Result: ${stepResult}`);
+              } catch (e) {
+                const err = e as Error;
+                const errorResult = `Step ${i + 1} (${step.operation}) Failed: ${err.message}`;
+                planObservations.push(errorResult);
+                // Stop the plan execution on the first error
+                observation = `Plan execution failed. ${errorResult}\n\nCompleted Observations:\n${planObservations.join('\n')}`;
+                throw new Error(observation); // Throw to exit the plan loop and report failure
+              }
+            }
+            
+            // 4. Report the final result
+            observation = `Successfully executed all ${plan.length} steps of the plan.\n\nObservations:\n${planObservations.join('\n')}`;
+            break;
+          }
+
+          case 'getGitDiff':
+             if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
+              throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
+            }
+            observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
+            break;
+
           default:
             observation = `Error: Unknown tool "${action.tool}"`;
         }

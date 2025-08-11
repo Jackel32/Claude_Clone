@@ -11,8 +11,7 @@ import { promises as fs } from 'fs';
 import { fileURLToPath } from 'url';
 import * as diff from 'diff';
 
-import { getProfile } from './config/index.js';
-import { createAIProvider } from './ai/provider-factory.js';
+import { createAppContext } from './config/index.js';
 import { logger } from './logger/index.js';
 import { AppContext, ChatMessage } from './types.js';
 import { constructChatPrompt, constructDiffAnalysisPrompt } from './ai/index.js';
@@ -43,22 +42,9 @@ export async function startServer() {
     const server = http.createServer(app);
     const wss = new WebSocketServer({ server });
 
-    const profile = await getProfile();
-    const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
-    const providerConfig = profile.providers?.[activeProviderName];
+    const appContext = await createAppContext();
+    const { aiProvider } = appContext;
     
-    let apiKey: string | undefined;
-    if (activeProviderName === 'gemini') apiKey = process.env.GOOGLE_API_KEY;
-    else if (activeProviderName === 'anthropic') apiKey = process.env.ANTHROPIC_API_KEY;
-
-    if (!apiKey) apiKey = providerConfig?.apiKey;
-
-    if (!apiKey || apiKey.includes('YOUR_API_KEY_HERE')) {
-        throw new Error(`API key for provider "${activeProviderName}" not found.`);
-    }
-    
-    const aiProvider = createAIProvider(profile, apiKey, logger);
-    const appContext: Omit<AppContext, 'args'> = { profile, aiProvider, logger };
     const reposDir = path.join(process.env.HOME || '/root', '.claude-code', 'repos');
     await fs.mkdir(reposDir, { recursive: true });
 

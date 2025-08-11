@@ -12,7 +12,6 @@ import { AgentUpdate } from '../../core/agent-core.js';
  * @param {AppContext} context - The application context.
  */
 export async function handleExplainCommand(context: AppContext): Promise<void> {
-  // Destructure dependencies from the context object
   const { aiProvider, logger, args } = context;
   const { files } = args;
 

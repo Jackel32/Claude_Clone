@@ -15,6 +15,7 @@ export async function processStream(stream: ReadableStream<Uint8Array>): Promise
   let fullResponse = '';
   let accumulatedText = '';
 
+  // 1. Read the entire stream into a single string.
   while (true) {
     const { done, value } = await reader.read();
     if (done) {
@@ -23,6 +24,8 @@ export async function processStream(stream: ReadableStream<Uint8Array>): Promise
     fullResponse += decoder.decode(value, { stream: true });
   }
 
+  // 2. Attempt to parse the string as a JSON array.
+  // The Gemini API returns a stream that, when concatenated, forms a JSON array.
   try {
     const responseArray = JSON.parse(fullResponse);
     for (const chunk of responseArray) {
@@ -33,11 +36,14 @@ export async function processStream(stream: ReadableStream<Uint8Array>): Promise
       }
     }
   } catch (error) {
-    console.error('\n\nFailed to parse the complete AI response stream.');
-    console.error('Raw Response:', fullResponse);
-    throw error;
+    // Fallback for cases where the stream might not be perfect JSON
+    // or for other providers that don't stream JSON.
+    process.stdout.write(fullResponse);
+    accumulatedText = fullResponse;
+    // Log a warning that parsing failed, so we know there might be an issue.
+    console.warn("\n[Warning: Could not parse AI response as JSON. Displaying raw stream.]");
   }
 
-  process.stdout.write('\n');
+  process.stdout.write('\n'); // Ensure a final newline for clean terminal output
   return accumulatedText;
 }

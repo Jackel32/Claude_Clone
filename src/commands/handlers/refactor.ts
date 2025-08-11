@@ -1,29 +1,18 @@
-import { promises as fs } from 'fs';
-import { constructRefactorPrompt } from '../../ai/index.js';
 import { AppContext } from '../../types.js';
-import { confirmAndApplyChanges, extractCode } from './utils.js';
+import { handleFileModificationCommand } from './utils.js';
+import { constructRefactorPrompt } from '../../ai/index.js';
 
 export async function handleRefactorCommand(context: AppContext): Promise<void> {
-  const { logger, aiProvider, args } = context;
-  const filePath = args.file;
+  const { args } = context;
   const userPrompt = args.prompt;
 
-  if (!filePath || !userPrompt) {
-    throw new Error('The `refactor` command requires a --file and a --prompt option.');
+  if (!userPrompt) {
+    throw new Error('The `refactor` command requires a --prompt option.');
   }
 
-  logger.info(`- Refactoring ${filePath}...`);
-  const originalCode = await fs.readFile(filePath, 'utf-8');
-  
-  const prompt = constructRefactorPrompt(userPrompt, originalCode);
-  const response = await aiProvider.invoke(prompt, false);
-  const rawCode = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!rawCode) {
-    logger.error('Failed to refactor. The AI returned an empty response.');
-    return;
-  }
-
-  const finalCode = extractCode(rawCode);
-  await confirmAndApplyChanges(filePath, originalCode, finalCode, context);
+  await handleFileModificationCommand(
+    context,
+    'Refactoring',
+    (originalCode) => constructRefactorPrompt(userPrompt, originalCode)
+  );
 }

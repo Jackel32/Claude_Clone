@@ -21,7 +21,7 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
   const projectContext = { ...context, args: { ...args, path: projectRoot } };
 
   const indexer = new Indexer(projectRoot);
-  await indexer.init(); // Load the cache into memory once
+  await indexer.init();
 
   if (!(await indexer.isIndexUpToDate())) {
     logger.warn(`Project index is incomplete or out-of-date for: ${projectRoot}`);

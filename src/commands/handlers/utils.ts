@@ -103,3 +103,37 @@ export function extractJson(rawResponse: string): string {
     
     return rawResponse.substring(start, end + 1).trim();
 }
+
+/**
+ * A generic workflow for commands that modify a single file based on AI generation.
+ * @param context The application context.
+ * @param operationName The name of the operation (e.g., "Refactoring", "Adding documentation").
+ * @param getAiPrompt A function that returns the AI prompt string.
+ */
+export async function handleFileModificationCommand(
+  context: AppContext,
+  operationName: string,
+  getAiPrompt: (originalCode: string, args: any) => string,
+): Promise<void> {
+  const { logger, aiProvider, args } = context;
+  const { file: filePath } = args;
+
+  if (!filePath) {
+    throw new Error(`The command requires a --file option.`);
+  }
+
+  logger.info(`- ${operationName} ${filePath}...`);
+  const originalCode = await fs.readFile(filePath, 'utf-8');
+
+  const prompt = getAiPrompt(originalCode, args);
+  const response = await aiProvider.invoke(prompt, false);
+  const rawCode = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!rawCode) {
+    logger.error(`Failed to ${operationName.toLowerCase()}. The AI returned an empty response.`);
+    return;
+  }
+
+  const finalCode = extractCode(rawCode);
+  await confirmAndApplyChanges(filePath, originalCode, finalCode, context);
+}
