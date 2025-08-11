@@ -1,6 +1,6 @@
 /**
  * @file src/codebase/scanner.ts
- * @description Scans a project directory for relevant files, respecting .gitignore.
+ * @description Scans a project directory for relevant files, respecting .gitignore and .kinchignore.
  */
 
 import { promises as fs } from 'fs';
@@ -15,15 +15,17 @@ import { findGitRoot, isGitRepository, readFile } from '../fileops/index.js';
 
 /**
  * Scans a project directory recursively and returns a list of all files,
- * respecting .gitignore rules if present.
+ * respecting .gitignore and .kinchignore rules if present.
  * @param {string} projectRoot - The root directory of the project to scan.
  * @returns {Promise<string[]>} A list of absolute file paths.
  */
 export async function scanProject(projectRoot: string): Promise<string[]> {
   const ig = ignore();
   
-  ig.add(['.git', 'node_modules']);
+  // Always add default ignore patterns
+  ig.add(['.git', 'node_modules', '.kinchignore']);
 
+  // --- Read .gitignore ---
   const isGitRepo = await isGitRepository(projectRoot);
   if (isGitRepo) {
     const gitRoot = await findGitRoot(projectRoot);
@@ -38,6 +40,15 @@ export async function scanProject(projectRoot: string): Promise<string[]> {
     }
   }
 
+  // --- Read .kinchignore (NEW) ---
+  const kinchignorePath = path.join(projectRoot, '.kinchignore');
+  try {
+    const kinchignoreContent = await readFile(kinchignorePath);
+    ig.add(kinchignoreContent);
+  } catch (error) {
+    // .kinchignore not found, which is also fine.
+  }
+
   const files: string[] = [];
   const queue: string[] = [projectRoot];
 
@@ -47,6 +58,7 @@ export async function scanProject(projectRoot: string): Promise<string[]> {
         const entries = await fs.readdir(currentDir, { withFileTypes: true });
         for (const entry of entries) {
             const fullPath = path.join(currentDir, entry.name);
+            // Use a relative path from the project root for ignore checks
             const relativePath = path.relative(projectRoot, fullPath);
 
             if (ig.ignores(relativePath)) {
