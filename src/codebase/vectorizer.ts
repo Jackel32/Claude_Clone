@@ -10,8 +10,8 @@ import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
 
-// This map will store the singleton instance for each project.
 const indexInstances: Map<string, LocalIndex> = new Map();
+const createdIndexState: Map<string, boolean> = new Map();
 
 /**
  * Splits code into manageable, overlapping chunks.
@@ -38,8 +38,20 @@ export async function getVectorIndex(projectRoot: string): Promise<LocalIndex> {
     const projectCacheDir = await getProjectCacheDir(projectRoot);
     const indexPath = path.join(projectCacheDir, 'vector_index');
     
-    // Create the new instance, store it in the map for reuse, and then return it.
     const newIndex = new LocalIndex(indexPath);
+    
+    const originalCreateIndex = newIndex.createIndex.bind(newIndex);
+    newIndex.createIndex = async (): Promise<void> => {
+        await originalCreateIndex();
+        createdIndexState.set(projectRoot, true);
+    };
+
+    const originalDeleteIndex = newIndex.deleteIndex.bind(newIndex);
+    newIndex.deleteIndex = async (): Promise<void> => {
+        await originalDeleteIndex();
+        createdIndexState.set(projectRoot, false);
+    };
+
     indexInstances.set(projectRoot, newIndex);
     return newIndex;
 }
@@ -58,9 +70,7 @@ export async function updateVectorIndex(
     onUpdate: AgentCallback
 ): Promise<void> {
     const vectorIndex = await getVectorIndex(projectRoot);
-    // The createIndex call is now primarily handled by runIndex, 
-    // but this ensures it exists if called directly.
-    if (!(await vectorIndex.isIndexCreated())) {
+    if (!(await isIndexCreated(projectRoot))) { // This now uses our reliable check
         await vectorIndex.createIndex();
     }
     
@@ -69,7 +79,6 @@ export async function updateVectorIndex(
         const chunk = chunks[i];
         if (!chunk.trim()) continue;
 
-        // Report progress for the current chunk
         onUpdate({ type: 'action', content: `    chunk ${i + 1}/${chunks.length}...` });
 
         const vector = await client.embed(chunk, projectRoot);
@@ -86,8 +95,15 @@ export async function updateVectorIndex(
  * @returns {Promise<boolean>} True if the index exists, false otherwise.
  */
 export async function isIndexCreated(projectRoot: string): Promise<boolean> {
+    if (createdIndexState.has(projectRoot)) {
+        return createdIndexState.get(projectRoot)!;
+    }
+
+    // If we don't have a state in memory (e.g., first server start), check the disk once and store the result.
     const vectorIndex = await getVectorIndex(projectRoot);
-    return await vectorIndex.isIndexCreated();
+    const onDisk = await vectorIndex.isIndexCreated();
+    createdIndexState.set(projectRoot, onDisk);
+    return onDisk;
 }
 
 /**

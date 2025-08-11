@@ -1,48 +1,81 @@
-# Kinch Code - AI-Powered Coding Assistant
+# Claude Code Clone
 
-Kinch Code is a sophisticated, multi-interface tool designed to be your AI pair programmer. It allows you to interact with, analyze, and modify your codebases through a feature-rich web UI, an interactive command-line menu, and a powerful AI agent.
+## Project Overview
 
-Built with a modular and extensible architecture, it leverages a local vector database for semantic understanding and an Abstract Syntax Tree (AST) parser for deep, structural code analysis.
+This project is a sophisticated AI-powered code analysis and modification tool. It leverages advanced language models to understand, refactor, generate, and test code, aiming to enhance developer productivity and code quality.
 
 ## Features
 
-### 🖥️ User Interfaces
-* **Web UI:** A full-featured, browser-based interface with a tabbed layout, real-time chat, and interactive workflows for all AI tasks.
-* **Interactive CLI:** A menu-driven command-line interface for a guided, terminal-based experience.
-* **Direct CLI:** A standard command-line interface for scripting and power users (e.g., `kinch-code test <file>`).
-
-### 🤖 Core AI Capabilities
-* **AI Agent Mode**: Give high-level tasks (e.g., "add ESLint to this project") and the AI will generate, propose, and execute a multi-step plan to accomplish the goal, showing its reasoning in real-time.
-* **Conversational Chat (RAG)**: Have a natural language conversation with your codebase. The assistant uses a vector index (RAG) and AST analysis to provide contextually-aware answers.
-* **Code Generation**: Create new functions, classes, or test files from a simple prompt, with an option to save directly to a file.
-* **Code Refactoring**: Request specific refactors for any file, review a side-by-side diff of the proposed changes, and approve them to be written to disk.
-* **Documentation Generation**: Automatically add JSDoc comments to any file, and review/approve the changes via a diff.
-* **Test Generation**: Select a file and a specific function/class to automatically generate a unit test using a framework of your choice (e.g., Jest, Vitest).
-
-### ⚙️ Developer & Workflow Tools
-* **Interactive Git Analysis**: Get an interactive list of recent commits and view a side-by-side diff of the changes between any two points in the history, complete with an AI-generated summary of the changes.
-* **Intelligent File Pickers**: UI features a collapsible file-tree and a pre-filtered list of testable files to make selection fast and intuitive.
-* **Project Reporting**: Generate a high-level summary of the entire project's architecture and purpose.
-* **Persistent Codebase Indexing**: Uses a local vector database to store an index of your code, only re-indexing files that have changed.
+*   **Code Analysis:** Deep understanding of code structure and logic.
+*   **Code Modification:** Refactoring, bug fixing, and style improvements.
+*   **Code Generation:** Creating new code snippets, functions, or entire modules.
+*   **Test Generation:** Writing unit and integration tests for existing code.
+*   **Documentation Generation:** Automatically adding comments and documentation to code.
+*   **Git Integration:** Seamless interaction with Git for version control operations.
+*   **Chat Interface:** Interactive chat for discussing and implementing code changes.
+*   **Extensible Architecture:** Support for multiple AI providers and custom commands.
 
 ## Architecture
-* **Stack**: Node.js, TypeScript, Express.js, WebSockets
-* **Module System**: Modern ES Modules (ESM)
-* **AI Providers**: Modular "Strategy" pattern allows for easily adding different AI backends (e.g., Anthropic, OpenAI).
-* **UI**: Decoupled core logic allows for both a command-line interface (`inquirer`) and a web interface (HTML/CSS/JS) to be powered by the same backend.
-* **Persistence**: Uses a local file-based vector database (`vectra`) for RAG.
-* **Containerization**: Fully containerized with a multi-stage `Dockerfile` and managed with `docker-compose`.
 
-## How to Run
+The project follows a modular architecture, separating concerns into distinct layers:
 
-### Docker (Recommended for Web UI)
-1.  Create an `.env` file from the project root (or rename the example).
-2.  Customize the `CODE_TO_ANALYZE_PATH` and `CONFIG_PATH` variables in the `.env` file.
-3.  Run `docker-compose up --build`.
-4.  Open your browser to `http://localhost:3000`.
+*   **Core Logic:** Handles the main AI interactions, command execution, and orchestration.
+*   **AI Providers:** Interfaces with various AI models (e.g., Anthropic, Gemini) for natural language processing and code generation.
+*   **Codebase Management:** Tools for scanning, indexing, and analyzing the codebase, including AST manipulation.
+*   **Commands:** A system for defining and executing specific developer tasks (e.g., add-docs, refactor, test).
+*   **File Operations:** Utilities for reading, writing, and managing files and version control.
+*   **Configuration:** Manages project settings and defaults.
+*   **Server:** Provides a web interface and WebSocket communication for interactive use.
 
-### Local Development (CLI)
-1.  Run `npm install`.
-2.  Run `npm run build`.
-3.  **For the interactive menu:** `npm run start`.
-4.  **For direct commands:** `npm run cli -- <command> [options]`.
+The project is built with TypeScript and Node.js, utilizing a robust build process managed by `tsconfig.json`.
+
+## Setup Instructions
+
+1.  **Prerequisites:**
+    *   Node.js (LTS recommended)
+    *   npm or yarn
+
+2.  **Installation:**
+    *   Clone the repository:
+        ```bash
+        git clone <repository-url>
+        cd Claude Code Clone
+        ```
+    *   Install dependencies:
+        ```bash
+        npm install
+        ```
+        or
+        ```bash
+        yarn install
+        ```
+
+3.  **Configuration:**
+    *   Ensure your AI provider API keys are set up in the environment or configuration files as required by the project.
+    *   Review `tsconfig.json` for TypeScript compilation settings.
+
+4.  **Running the Application:**
+    *   To start the server:
+        ```bash
+        npm start
+        ```
+        or
+        ```bash
+        yarn start
+        ```
+    *   The application may also be run via Docker Compose. Ensure Docker is installed and then run:
+        ```bash
+        docker-compose up
+        ```
+
+5.  **Running Tests:**
+    *   To execute the test suite:
+        ```bash
+        npm test
+        ```
+        or
+        ```bash
+        yarn test
+        ```
+
+*Note: The `docker-compose.yml` file provides specific details on containerization and service setup.*

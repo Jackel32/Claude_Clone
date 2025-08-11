@@ -5,7 +5,7 @@
 
 import { WebSocketServer, WebSocket } from 'ws';
 import express from 'express';
-import { randomUUID } from 'crypto'; // Import for unique IDs
+import { randomUUID } from 'crypto';
 import { AppContext, ChatMessage } from '../types.js';
 import { runAgent, AgentUpdate } from '../core/agent-core.js';
 import { runReport } from '../core/report-core.js';
@@ -23,9 +23,9 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
     wss.on('connection', (ws: WebSocket) => {
         logger.info('Client connected to WebSocket');
         const conversationHistory: ChatMessage[] = [];
-        // Map to store pending prompts: key is promptId, value is the resolver function
         const pendingPrompts = new Map<string, (answer: string) => void>();
-        
+        let pendingUserMessage: any = null;
+
         const onUpdate = (update: AgentUpdate) => {
             logger.info({ wsMessageOut: update }, 'Sending WebSocket message to client');
             ws.send(JSON.stringify(update));
@@ -35,14 +35,13 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
             try {
                 const data = JSON.parse(message.toString());
 
-                // Handle responses to agent prompts separately
                 if (data.type === 'prompt-response' && data.promptId) {
                     if (pendingPrompts.has(data.promptId)) {
                         const resolve = pendingPrompts.get(data.promptId);
                         resolve?.(data.answer);
                         pendingPrompts.delete(data.promptId);
                     }
-                    return; // Stop further processing for this message type
+                    return;
                 }
 
                 const activeRepo = app.get('CODE_ANALYSIS_ROOT');
@@ -53,8 +52,18 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                 }
 
                 const agentContext = { ...appContext, args: { path: activeRepo } };
-                const taskCallback = (update: Omit<AgentUpdate, 'taskId'>) => onUpdate({ ...update, taskId: data.taskId });
+                const taskCallback = (update: Omit<AgentUpdate, 'taskId'>) => {
+                    const fullUpdate = { ...update, taskId: data.taskId };
+                    onUpdate(fullUpdate);
 
+                    // If indexing is finished, resend the original chat message
+                    if (fullUpdate.type === 'finish' && pendingUserMessage && data.type === 'start-indexing') {
+                        logger.info('Indexing finished, resending pending chat message.');
+                        ws.send(JSON.stringify(pendingUserMessage));
+                        pendingUserMessage = null;
+                    }
+                };
+                
                 switch (data.type) {
                     case 'start-init':
                         await runInit({ ...appContext, args: { path: data.projectPath } }, taskCallback);
@@ -76,7 +85,7 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                             
                             const onAgentPrompt = async (question: string): Promise<string> => {
                                 const promptId = randomUUID();
-                                const PROMPT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+                                const PROMPT_TIMEOUT = 5 * 60 * 1000;
 
                                 return new Promise((resolve, reject) => {
                                     const timeoutId = setTimeout(() => {
@@ -101,25 +110,14 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                     }
 
                     case 'chat': {
-                        const indexer = await getIndexer(activeRepo); // Use singleton getter
+                        const indexer = await getIndexer(activeRepo);
 
-                        // If index is out of date, update it automatically inside this handler
                         if (!(await indexer.isIndexUpToDate())) {
-                            ws.send(JSON.stringify({ type: 'start' }));
-                            ws.send(JSON.stringify({ type: 'chunk', content: 'Project index is out of date. Updating now, please wait...\n\n' }));
-
-                            // Create a temporary callback to stream indexing progress directly to the chat window
-                            const indexCallback = (update: AgentUpdate) => {
-                                if (update.type === 'thought' || update.type === 'action' || update.type === 'finish' || update.type === 'error') {
-                                    ws.send(JSON.stringify({ type: 'chunk', content: `[INDEX] ${update.content}\n` }));
-                                }
-                            };
-                            
-                            await runIndex(agentContext, indexCallback);
-                            ws.send(JSON.stringify({ type: 'chunk', content: '\nIndexing complete. Now processing your request...\n\n' }));
+                            pendingUserMessage = data; // Save the message
+                            ws.send(JSON.stringify({ type: 'index-required' }));
+                            return;
                         }
 
-                        // --- Original chat logic now proceeds with an up-to-date index ---
                         const query = data.content;
                         conversationHistory.push({ role: 'user', content: query });
 
@@ -140,8 +138,7 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                         }
                         
                         try {
-                            const jsonArrayString = `[${fullResponse.replace(/}\s*{/g, '},{')}]`;
-                            const responseArray = JSON.parse(jsonArrayString);
+                            const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
                             for (const chunk of responseArray) {
                                 const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
                                 if (text) {
@@ -152,7 +149,6 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                         } catch (error) {
                              ws.send(JSON.stringify({ type: 'chunk', content: fullResponse }));
                              accumulatedText = fullResponse;
-                             logger.warn('Could not parse AI stream as JSON, sending raw text.');
                         }
 
                         conversationHistory.push({ role: 'assistant', content: accumulatedText });
@@ -173,11 +169,9 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
 
         ws.on('close', () => {
             logger.info('Client disconnected');
-            // Clean up any pending prompts to prevent agent from hanging
             if (pendingPrompts.size > 0) {
                 logger.warn(`Client disconnected with ${pendingPrompts.size} pending prompts. Rejecting them.`);
                 for (const [promptId, resolve] of pendingPrompts.entries()) {
-                    // The promise will be rejected by the timeout, but we ensure cleanup
                     pendingPrompts.delete(promptId);
                 }
             }

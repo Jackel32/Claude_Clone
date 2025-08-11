@@ -2,7 +2,7 @@
  * @file src/ai/prompts.ts
  * @description Functions for constructing AI prompts.
  */
-import { ChatMessage } from '../types.js'; // Import from the new location
+import { ChatMessage } from '../types.js';
 
 /**
  * Constructs a structured chat prompt with conversation history.
@@ -15,7 +15,6 @@ export function constructChatPrompt(history: ChatMessage[], context: string): st
     .map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
     .join('\n');
 
-  // FIX: This new, more detailed system prompt gives the AI more nuanced instructions.
   const systemPrompt = `You are an expert AI software architect and coding assistant.
 Your goal is to help the user understand, improve, and work with their codebase. Analyze the user's query and the conversation history carefully.
 
@@ -151,15 +150,41 @@ export interface PlanStep {
  * @returns The formatted prompt string.
  */
 export function constructPlanPrompt(userTask: string, context: string): string {
+  // FIX: Added a detailed one-shot example to guide the AI's response format.
   return `You are an expert AI agent. Your goal is to achieve the user's task by creating a step-by-step plan.
 Analyze the user's request and the provided code context.
-Generate a plan as a JSON array of objects. Each object must have a "reasoning" property explaining the step.
+Generate a plan as a JSON array of objects. Each object must have a "reasoning" property explaining the step and an "operation" property.
 You cannot ask for user input in the middle of a plan; all information must be inferred from the user's initial request.
 
 The available operations are:
 - "writeFile": Writes or overwrites content to a file. Requires "path" and "content" properties.
 - "executeCommand": Executes a shell command. Requires a "command" property.
 - "readFile": Reads a file to get information for a subsequent step. Requires a "path" property.
+
+---
+## Example ##
+User Task: "Add a new function to the main utility file and then run the linter."
+
+JSON Plan:
+[
+  {
+    "reasoning": "First, I need to read the existing utility file to understand its current contents and conventions before adding a new function.",
+    "operation": "readFile",
+    "path": "src/utils.ts"
+  },
+  {
+    "reasoning": "Now I will write the new function to the end of the utility file, including the original content.",
+    "operation": "writeFile",
+    "path": "src/utils.ts",
+    "content": "<original content>\\n\\nexport function newFunction() {\\n  // ...\\n}"
+  },
+  {
+    "reasoning": "Finally, I need to run the linter to ensure the new code meets the project's style guidelines.",
+    "operation": "executeCommand",
+    "command": "npm run lint"
+  }
+]
+---
 
 Your response MUST be only the raw JSON array.
 
