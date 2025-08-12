@@ -71,26 +71,6 @@ export function parseArgs() {
       }
     )
     .command(
-      'refactor <file>',
-      'Refactors a specific file based on a prompt',
-      (y) => {
-        return y
-          .positional('file', { describe: 'The file to refactor', type: 'string' })
-          .option('prompt', {
-            type: 'string',
-            description: 'A detailed description of the desired refactoring',
-            demandOption: true,
-          });
-      }
-    )
-    .command(
-      'add-docs <file>',
-      'Adds JSDoc comments to a file',
-      (y) => {
-        return y.positional('file', { describe: 'The file to document', type: 'string' });
-      }
-    )
-    .command(
       'test <file>',
       'Generates a unit test for a specific function or class',
       (y) => {

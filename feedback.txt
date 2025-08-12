@@ -1,0 +1,1 @@
+The chat does not work anymore, it indexes when i submit an input and once it finishes it indexes again in an endless loop.

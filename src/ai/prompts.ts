@@ -71,48 +71,6 @@ Generated Code:`;
 }
 
 /**
- * Constructs a prompt for refactoring code.
- * @param {string} userRequest - The user's instruction for how to refactor.
- * @param {string} codeContent - The original code to be refactored.
- * @returns {string} The formatted prompt string.
- */
-export function constructRefactorPrompt(userRequest: string, codeContent: string): string {
-  return `You are an expert senior software engineer specializing in code refactoring.
-Your task is to rewrite the provided code based on the user's request.
-Adhere to modern best practices, improve readability, and maintain existing functionality.
-Only output the raw, complete, and refactored code for the entire file. Do not include explanations, markdown, or any text other than the code itself.
-
-<USER REQUEST>
-${userRequest}
-</USER REQUEST>
-
-<ORIGINAL CODE>
-${codeContent}
-</ORIGINAL CODE>
-
-Refactored Code:`;
-}
-
-/**
- * Constructs a prompt for adding documentation to code.
- * @param {string} codeContent - The original code needing documentation.
- * @returns {string} The formatted prompt string.
- */
-export function constructDocsPrompt(codeContent: string): string {
-  return `You are an expert technical writer.
-Your task is to add comprehensive JSDoc comments to all exported functions, classes, methods, and types in the provided code.
-Do not change any of the existing code. Only add documentation.
-Return the entire, complete file content with the new documentation added.
-Only output the raw code. Do not include explanations, markdown, or any text other than the code itself.
-
-<ORIGINAL CODE>
-${codeContent}
-</ORIGINAL CODE>
-
-Code with Documentation:`;
-}
-
-/**
  * Constructs a prompt for generating a unit test.
  * @param {string} symbolContent - The source code of the symbol(s) to test.
  * @param {string} framework - The testing framework to use (e.g., 'jest', 'vitest').

@@ -11,9 +11,6 @@ import { AppContext } from '../types.js';
 import { constructDiffAnalysisPrompt } from '../ai/prompts.js';
 import { getRecentCommits, getDiffBetweenCommits, cloneRepo, getBranches, getDiffBetweenBranches } from '../fileops/index.js';
 import { buildFileTree, listSymbolsInFile, buildTestableFileTree, detectProjectLanguages } from '../codebase/index.js';
-import { runAddDocs } from '../core/add-docs-core.js';
-import { runRefactor } from '../core/refactor-core.js';
-import { runTestGeneration } from '../core/test-core.js';
 import { runGenerate } from '../core/generate-core.js';
 import { TASK_LIBRARY } from '../ai/prompt-library.js';
 import { logger } from '../logger/index.js';
@@ -184,48 +181,6 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         }
     });
 
-    router.post('/add-docs', async (req, res) => {
-        try {
-            const { filePath } = req.body;
-            // The server reads the file content once.
-            const originalContent = await fs.readFile(filePath, 'utf-8');
-            
-            const activeRepoPath = getActiveRepoPath(req);
-            const requestContext = { ...appContext, args: { path: activeRepoPath } };
-
-            // The content is passed to the core function.
-            const newContent = await runAddDocs(originalContent, requestContext);
-            
-            const patch = diff.createPatch(filePath, originalContent, newContent);
-            res.json({ patch, newContent });
-        } catch (error) {
-            logger.error(error, `Error in /api/add-docs for file: ${req.body.filePath}`);
-            res.status(500).json({ error: (error as Error).message });
-        }
-    });
-    
-    router.post('/refactor', async (req, res) => {
-        try {
-            const activeRepoPath = getActiveRepoPath(req);
-            const { filePath, prompt } = req.body;
-            const originalContent = await fs.readFile(filePath, 'utf-8');
-            const requestContext = { ...appContext, args: { path: activeRepoPath } };
-            const newContent = await runRefactor(filePath, prompt, requestContext);
-            const patch = diff.createPatch(filePath, originalContent, newContent);
-            res.json({ patch, newContent });
-        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
-    });
-
-    router.post('/test', async (req, res) => {
-        try {
-            const activeRepoPath = getActiveRepoPath(req);
-            const { filePath, symbol, framework } = req.body;
-            const requestContext = { ...appContext, args: { path: activeRepoPath } };
-            const newContent = await runTestGeneration(filePath, symbol, framework, requestContext);
-            res.json({ newContent });
-        } catch (error) { res.status(500).json({ error: (error as Error).message }); }
-    });
-
     router.post('/apply-changes', async (req, res) => {
         try {
             const { filePath, newContent } = req.body;
@@ -254,7 +209,7 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
                 return task.supportedLanguages.some(lang => projectLangs.includes(lang));
             });
 
-            const libraryForUI = filteredTasks.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
+            const libraryForUI = filteredTasks.map(({ id, title, description, inputs, group }) => ({ id, title, description, inputs, group }));
             res.json(libraryForUI);
         } catch (error) {
             logger.error(error, 'Error in /api/tasks');
@@ -270,7 +225,6 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
                 return res.status(400).json({ error: 'Prompt is required.' });
             }
             const requestContext: AppContext = { ...appContext, args: { path: activeRepoPath } };
-            // You will need to create a 'runGenerate' function similar to 'runRefactor'
             const newContent = await runGenerate(prompt, requestContext);
             res.json({ newContent });
         } catch (error) {

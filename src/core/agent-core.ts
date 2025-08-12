@@ -44,7 +44,7 @@ export async function runAgent(
   }
 
   let history = '';
-  const maxTurns = 10;
+  const maxTurns = 20;
 
   const allToolNames = Object.keys(ALL_TOOLS);
   for (const tool of requiredTools) {

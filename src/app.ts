@@ -13,9 +13,6 @@ import {
   handleBranchesCommand,
   handleReportCommand,
   handleGenerateCommand,
-  handleRefactorCommand,
-  handleAddDocsCommand,
-  handleTestCommand,
   handleTaskCommand,
   promptForFile,
   handleInitCommand
@@ -56,9 +53,6 @@ export async function startMainMenu(): Promise<void> {
           'Generate a high-level project report',
           new inquirer.Separator(),
           'Generate a new code snippet',
-          'Refactor a file',
-          'Add documentation to a file',
-          'Generate a unit test',
           new inquirer.Separator(),
           'Exit',
         ],
@@ -100,35 +94,7 @@ export async function startMainMenu(): Promise<void> {
           { type: 'input', name: 'prompt', message: 'Enter a detailed prompt for the code:' },
         ]);
         await handleGenerateCommand({ ...baseContext, args: genAnswers });
-        break;
-      
-      case 'Refactor a file':
-        const fileToRefactor = await promptForFile('Select the file to refactor:', { ...baseContext, args: {} });
-        if (!fileToRefactor) continue; // If null, go back to main menu
-
-        const { prompt } = await inquirer.prompt([
-          { type: 'input', name: 'prompt', message: 'Enter your refactoring instructions:' },
-        ]);
-        await handleRefactorCommand({ ...baseContext, args: { file: fileToRefactor, prompt } });
-        break;
-        
-      case 'Add documentation to a file':
-        const fileToDocument = await promptForFile('Select the file to document:', { ...baseContext, args: {} });
-        if (!fileToDocument) continue; // If null, go back to main menu
-        
-        await handleAddDocsCommand({ ...baseContext, args: { file: fileToDocument } });
-        break;
-
-      case 'Generate a unit test':
-        const fileToTest = await promptForFile('Select the file containing the symbol to test:', { ...baseContext, args: {} });
-        if (!fileToTest) continue; // If null, go back to main menu
-        
-        const testAnswers = await inquirer.prompt([
-            { type: 'input', name: 'symbol', message: 'Enter the name of the function/class to test:' },
-            { type: 'input', name: 'framework', message: 'Enter the testing framework (e.g., jest, vitest):', default: 'jest' },
-        ]);
-        await handleTestCommand({ ...baseContext, args: { ...testAnswers, file: fileToTest } });
-        break;
+        break;      
 
       case 'Exit':
         logger.info('Goodbye!');

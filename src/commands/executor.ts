@@ -5,7 +5,6 @@
 
 import { handleExplainCommand, handleIndexCommand, handleReportCommand,
         handleDiffCommand, handleChatCommand, handleGenerateCommand,
-        handleRefactorCommand, handleAddDocsCommand, handleTestCommand,
         handleInitCommand    } from './handlers/index.js';
 import { createAppContext } from '../config/index.js';
 import { logger } from '../logger/index.js';
@@ -39,15 +38,6 @@ export async function executeCommand(args: any): Promise<void> {
       break;
     case 'generate':
       await handleGenerateCommand(context);
-      break;
-    case 'refactor':
-      await handleRefactorCommand(context);
-      break;
-    case 'add-docs':
-      await handleAddDocsCommand(context);
-      break;
-    case 'test':
-      await handleTestCommand(context);
       break;
     default:
       logger.error(`Unknown command: ${command}`);

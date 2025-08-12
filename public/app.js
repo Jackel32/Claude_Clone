@@ -6,8 +6,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatForm = document.getElementById('chat-form');
     const messageInput = document.getElementById('message-input');
     const agentTaskBtn = document.getElementById('agent-task-btn');
-    const addDocsBtn = document.getElementById('add-docs-btn');
-    const refactorBtn = document.getElementById('refactor-btn');
     const testBtn = document.getElementById('test-btn');
     const gitDiffBtn = document.getElementById('git-diff-btn');
     const gitBranchesBtn = document.getElementById('git-branches-btn');
@@ -46,8 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- EVENT LISTENERS ---
     chatForm.addEventListener('submit', handleChatSubmit);
     if (agentTaskBtn) agentTaskBtn.addEventListener('click', showTaskLibrary);
-    if (addDocsBtn) addDocsBtn.addEventListener('click', showAddDocsDialog);
-    if (refactorBtn) refactorBtn.addEventListener('click', showRefactorDialog);
     if (testBtn) testBtn.addEventListener('click', showTestDialog);
     if (gitDiffBtn) gitDiffBtn.addEventListener('click', showGitDiffDialog);
     if (gitBranchesBtn) gitBranchesBtn.addEventListener('click', showGitBranchesDialog);
@@ -437,51 +433,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Define the roles and their tasks
-            const taskGroups = {
-                'Software Engineer 👩‍💻': [
-                   // 'add-error-handling', 'refactor-to-async-await', 'implement-api-client', 
-                   // 'find-and-remove-dead-code', 'generate-class-from-interface', 'create-github-action-workflow'
-                ],
-                'Tester 🧪': [
-                   // 'generate-unit-tests', 'generate-e2e-test-spec', 'generate-mock-data', 
-                   // 'suggest-regression-tests', 'generate-accessibility-report', 'analyze-test-coverage', 'generate-tests-from-requirements'
-                ],
-                'Architect 🏛️': [
-                   // 'write-readme', 'create-architecture-diagram', 'propose-tech-stack-migration', 
-                   // 'draft-decision-record', 'analyze-circular-dependencies', 'perform-security-audit'
-                ],
-                'Product Manager 📝': [
-                   // 'generate-user-stories', 'create-release-notes', 'analyze-user-feedback', 
-                   // 'create-feature-rollout-plan', 'generate-api-docs', 'write-user-documentation'
-                ],
-                // 'Agent Developer 🛠️': [
-                //     'analyze-task-tools'
-                // ]
-            };
+            // Dynamically create task groups
+            const taskGroups = library.reduce((acc, task) => {
+                if (task.group) {
+                    if (!acc[task.group]) {
+                        acc[task.group] = [];
+                    }
+                    acc[task.group].push(task);
+                }
+                return acc;
+            }, {});
 
             panel.innerHTML = '<h3>Select a Task to Execute</h3>';
             const container = document.createElement('div');
             container.className = 'task-library-container';
 
             // Create a card for each role
-            for (const role in taskGroups) {
+            for (const groupName in taskGroups) {
                 const groupDiv = document.createElement('div');
                 groupDiv.className = 'task-role-group';
                 
                 const title = document.createElement('h4');
-                title.textContent = role;
+                title.innerHTML = groupName; // Use innerHTML to render emojis
                 groupDiv.appendChild(title);
 
                 const taskList = document.createElement('ul');
-                taskGroups[role].forEach(taskId => {
-                    const task = library.find(t => t.id === taskId);
-                    if (task) {
-                        const li = document.createElement('li');
-                        li.innerHTML = `<strong>${task.title}</strong><p>${task.description}</p>`;
-                        li.onclick = () => startTaskWorkflow(task, panel);
-                        taskList.appendChild(li);
-                    }
+                taskGroups[groupName].forEach(task => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<strong>${task.title}</strong><p>${task.description}</p>`;
+                    li.onclick = () => startTaskWorkflow(task, panel);
+                    taskList.appendChild(li);
                 });
                 groupDiv.appendChild(taskList);
                 container.appendChild(groupDiv);
@@ -594,9 +575,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setTabStatus(panel, 'running');
         socket.send(JSON.stringify({ type: 'get-report', taskId }));
     }
-    
-    // Unmodified functions from here down...
-    function showAddDocsDialog() { showGenericFileDialog('Add Docs', onFileSelectForDocs); }
 
     function showGenericFileDialog(title, onFileSelectCallback) {
         const panel = createTab(title); // Assuming createTab exists
@@ -618,51 +596,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // input fields, or a file picker UI.
     }
 
-    async function onFileSelectForDocs(filePath, panel) {
-        panel.innerHTML = '<h3>Generating Documentation...</h3>';
-        try {
-            const response = await fetch('/api/add-docs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath }) });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const { patch, newContent } = await response.json();
-            displayDiff(panel, patch, `Docs: ${filePath.split('/').pop().split('\\').pop()}`);
-            const actions = document.createElement('div');
-            actions.className = 'actions';
-            const applyBtn = document.createElement('button');
-            applyBtn.textContent = 'Apply Changes';
-            applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
-            actions.appendChild(applyBtn);
-            panel.appendChild(actions);
-        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
-    }
-    function showRefactorDialog() { showGenericFileDialog('Refactor File', onFileSelectForRefactor); }
-
-    async function onFileSelectForRefactor(filePath, panel) {
-        const promptText = prompt(`Enter refactoring instructions for ${filePath}:`);
-        if (!promptText || !promptText.trim()) {
-            panel.innerHTML = 'Refactoring cancelled.';
-            return;
-        }
-        panel.innerHTML = '<h3>Applying Refactoring...</h3>';
-        try {
-            const response = await fetch('/api/refactor', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, prompt: promptText })
-            });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const { patch, newContent } = await response.json();
-            displayDiff(panel, patch, `Refactor: ${filePath.split('/').pop().split('\\').pop()}`);
-            const actions = document.createElement('div');
-            actions.className = 'actions';
-            const applyBtn = document.createElement('button');
-            applyBtn.textContent = 'Apply Changes';
-            applyBtn.onclick = () => applyChanges(filePath, newContent, panel);
-            actions.appendChild(applyBtn);
-            panel.appendChild(actions);
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
-    }
     async function showTestDialog() {
         const panel = createTab('Generate Test');
         panel.innerHTML = 'Finding testable files...';
@@ -712,69 +645,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         return li;
-    }
-
-    async function onFileSelectForTest(filePath, panel) {
-        const symbol = prompt(`Enter the symbol (function/class name) for which to generate tests in ${filePath}:`);
-        if (!symbol || !symbol.trim()) {
-            panel.innerHTML = 'Test generation cancelled: Symbol not provided.';
-            return;
-        }
-        const framework = prompt(`Enter the testing framework (e.g., 'jest', 'mocha', 'pytest') for ${filePath}:`);
-        // You might want to add validation or default for framework
-        
-        panel.innerHTML = '<h3>Generating Test...</h3>';
-        try {
-            const response = await fetch('/api/test', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ filePath, symbol, framework })
-            });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const { newContent } = await response.json();
-            
-            // For tests, you might just display the new content or offer to save it
-            // If the server returns a patch, you'd use displayDiff similar to add-docs/refactor
-            panel.innerHTML = `<h3>Generated Test Content for ${filePath.split('/').pop().split('\\').pop()}:</h3><pre>${newContent}</pre>`;
-            
-            const actions = document.createElement('div');
-            actions.className = 'actions';
-            const applyBtn = document.createElement('button');
-            applyBtn.textContent = 'Apply Changes (Save Test File)';
-            // You might want to suggest a new filename for the test file (e.g., originalFile.test.ts)
-            // For simplicity, this example just applies to the original file, which might not be desired for tests.
-            // A more robust solution would let the user specify the test file path.
-            applyBtn.onclick = () => applyChanges(filePath.replace(/\.([a-zA-Z0-9]+)$/, '.test.$1'), newContent, panel); 
-            actions.appendChild(applyBtn);
-            panel.appendChild(actions);
-
-        } catch (e) {
-            panel.innerHTML = `Error: ${e.message}`;
-        }
-    }
-
-    async function onSymbolSelectForTest(filePath, symbol, panel) {
-        const framework = prompt(`Enter the testing framework for "${symbol}":`, 'jest');
-        if (!framework || !framework.trim()) { closeTab(panel.dataset.tabId); return; }
-        panel.innerHTML = `<h3>Generating ${framework} test for "${symbol}"...</h3>`;
-        try {
-            const response = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath, symbol, framework }) });
-            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-            const { newContent } = await response.json();
-            document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = `Test: ${symbol}`;
-            panel.innerHTML = `<h3>Generated Test for ${symbol}</h3><pre><code>${newContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
-            const actions = document.createElement('div');
-            actions.className = 'actions';
-            const saveBtn = document.createElement('button');
-            saveBtn.textContent = 'Save to File';
-            saveBtn.onclick = () => {
-                const defaultPath = filePath.replace('.ts', '.test.ts').replace('.py', '_test.py');
-                const outputPath = prompt(`Enter path to save test file:`, defaultPath);
-                if (outputPath) applyChanges(outputPath, newContent, panel);
-            };
-            actions.appendChild(saveBtn);
-            panel.appendChild(actions);
-        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
 
     async function showGitBranchesDialog() {
