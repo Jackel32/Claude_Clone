@@ -10,7 +10,7 @@ import * as diff from 'diff';
 import { AppContext } from '../types.js';
 import { constructDiffAnalysisPrompt } from '../ai/prompts.js';
 import { getRecentCommits, getDiffBetweenCommits, cloneRepo, getBranches, getDiffBetweenBranches } from '../fileops/index.js';
-import { buildFileTree, listSymbolsInFile, buildTestableFileTree } from '../codebase/index.js';
+import { buildFileTree, listSymbolsInFile, buildTestableFileTree, detectProjectLanguages } from '../codebase/index.js';
 import { runAddDocs } from '../core/add-docs-core.js';
 import { runRefactor } from '../core/refactor-core.js';
 import { runTestGeneration } from '../core/test-core.js';
@@ -238,6 +238,28 @@ export function createApiRouter(appContext: Omit<AppContext, 'args'>, reposDir: 
         // We only send the parts the UI needs, not the prompt function
         const libraryForUI = TASK_LIBRARY.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
         res.json(libraryForUI);
+    });
+
+    router.get('/tasks', async (req, res) => {
+        try {
+            const activeRepoPath = getActiveRepoPath(req);
+            const projectLangs = await detectProjectLanguages(activeRepoPath);
+            
+            const filteredTasks = TASK_LIBRARY.filter(task => {
+                // If a task has no language specified, it's universal.
+                if (!task.supportedLanguages || task.supportedLanguages.length === 0) {
+                    return true;
+                }
+                // Otherwise, check if any of the project's languages are supported by the task.
+                return task.supportedLanguages.some(lang => projectLangs.includes(lang));
+            });
+
+            const libraryForUI = filteredTasks.map(({ id, title, description, inputs }) => ({ id, title, description, inputs }));
+            res.json(libraryForUI);
+        } catch (error) {
+            logger.error(error, 'Error in /api/tasks');
+            res.status(500).json({ error: (error as Error).message });
+        }
     });
 
     router.post('/generate', async (req, res) => {

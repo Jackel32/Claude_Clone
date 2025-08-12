@@ -197,26 +197,41 @@ User Task: "${userTask}"
 JSON Plan:`;
 }
 
+export const ALL_TOOLS = {
+    writeFile: 'Writes/overwrites a file. Args: "path", "content".',
+    executeCommand: 'Executes a shell command. Args: "command".',
+    readFile: 'Reads a file to gather information. Args: "path".',
+    listFiles: 'Lists all files in the current project. Args: none.',
+    listSymbols: 'Lists all functions and classes in a file. Args: "path".',
+    readSymbol: 'Reads the content of a specific function or class. Args: "path", "symbolName".',
+    getGitDiff: 'Gets the diff between two commits. Args: "startCommit", "endCommit".',
+    getRecentCommits: 'Gets a list of recent commits. Args: none.',
+    askUser: 'Asks the user a question and gets their response. Args: "question".',
+    createPlan: 'Creates a step-by-step plan for a high-level goal. Args: "goal".',
+    finish: 'Call this when the task is complete. Args: "summary".',
+};
+
+export type ToolName = keyof typeof ALL_TOOLS;
+
 /**
  * Constructs a prompt for a ReAct-style agent.
  * @param userTask The original high-level task.
  * @param history A string representing the history of actions and observations.
  * @returns The formatted prompt string.
  */
-export function constructReActPrompt(userTask: string, history: string, initialContext: string): string {
-  // The new, more detailed prompt with a one-shot example
-  return `You are an expert AI agent. Your goal is to achieve the user's task by reasoning and taking one action at a time.
+export function constructReActPrompt(
+    userTask: string,
+    history: string,
+    initialContext: string,
+    availableTools: (keyof typeof ALL_TOOLS)[]
+): string {
+    const toolDescriptions = availableTools
+        .map(toolName => `- "${toolName}": ${ALL_TOOLS[toolName]}`)
+        .join('\n');
+
+    return `You are an expert AI agent. Your goal is to achieve the user's task by reasoning and taking one action at a time.
 You have access to the following tools:
-- "writeFile": Writes/overwrites a file. Args: "path", "content".
-- "executeCommand": Executes a shell command. Args: "command".
-- "readFile": Reads a file to gather information. Args: "path".
-- "listFiles": Lists all files in the current project. Args: none.
-- "listSymbols": Lists all functions and classes in a file. Args: "path".
-- "readSymbol": Reads the content of a specific function or class. Args: "path", "symbolName".
-- "getGitDiff": Gets the diff between two commits. Args: "startCommit", "endCommit".
-- "getRecentCommits": Gets a list of recent commits. Args: none.
-- "askUser": Asks the user a question and gets their response. Args: "question".
-- "createPlan": Creates a step-by-step plan for a high-level goal. Args: "goal".
+${toolDescriptions}
 - "finish": Call this when the task is complete. Args: "summary".
 
 On each turn, you must respond with a JSON object containing your "thought" process and the next "action" you will take.
@@ -247,7 +262,6 @@ User Task: "${userTask}"
 
 Your JSON response:`;
 }
-
 /**
  * Constructs a prompt that asks the AI to analyze a git diff.
  * @param {string} diffContent - The raw git diff output.

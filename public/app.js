@@ -428,20 +428,67 @@ document.addEventListener('DOMContentLoaded', () => {
         const panel = createTab('Task Library');
         panel.innerHTML = '<h3>Loading available tasks...</h3>';
         try {
-            const response = await fetch('/api/prompt-library');
+            const response = await fetch('/api/tasks');
             if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
             const library = await response.json();
+
+            if (library.length === 0) {
+                panel.innerHTML = '<h3>No tasks available for the detected languages in this project.</h3>';
+                return;
+            }
+
+            // Define the roles and their tasks
+            const taskGroups = {
+                'Software Engineer 👩‍💻': [
+                   // 'add-error-handling', 'refactor-to-async-await', 'implement-api-client', 
+                   // 'find-and-remove-dead-code', 'generate-class-from-interface', 'create-github-action-workflow'
+                ],
+                'Tester 🧪': [
+                   // 'generate-unit-tests', 'generate-e2e-test-spec', 'generate-mock-data', 
+                   // 'suggest-regression-tests', 'generate-accessibility-report', 'analyze-test-coverage', 'generate-tests-from-requirements'
+                ],
+                'Architect 🏛️': [
+                   // 'write-readme', 'create-architecture-diagram', 'propose-tech-stack-migration', 
+                   // 'draft-decision-record', 'analyze-circular-dependencies', 'perform-security-audit'
+                ],
+                'Product Manager 📝': [
+                   // 'generate-user-stories', 'create-release-notes', 'analyze-user-feedback', 
+                   // 'create-feature-rollout-plan', 'generate-api-docs', 'write-user-documentation'
+                ],
+                // 'Agent Developer 🛠️': [
+                //     'analyze-task-tools'
+                // ]
+            };
+
+            panel.innerHTML = '<h3>Select a Task to Execute</h3>';
+            const container = document.createElement('div');
+            container.className = 'task-library-container';
+
+            // Create a card for each role
+            for (const role in taskGroups) {
+                const groupDiv = document.createElement('div');
+                groupDiv.className = 'task-role-group';
+                
+                const title = document.createElement('h4');
+                title.textContent = role;
+                groupDiv.appendChild(title);
+
+                const taskList = document.createElement('ul');
+                taskGroups[role].forEach(taskId => {
+                    const task = library.find(t => t.id === taskId);
+                    if (task) {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<strong>${task.title}</strong><p>${task.description}</p>`;
+                        li.onclick = () => startTaskWorkflow(task, panel);
+                        taskList.appendChild(li);
+                    }
+                });
+                groupDiv.appendChild(taskList);
+                container.appendChild(groupDiv);
+            }
             
-            panel.innerHTML = '<h3>Select a Task to Execute:</h3>';
-            const taskList = document.createElement('div'); // Use a div for card-like layout
-            library.forEach(task => {
-                const card = document.createElement('div');
-                card.className = 'task-card';
-                card.innerHTML = `<h4>${task.title}</h4><p>${task.description}</p>`;
-                card.onclick = () => startTaskWorkflow(task, panel);
-                taskList.appendChild(card);
-            });
-            panel.appendChild(taskList);
+            panel.appendChild(container);
+
         } catch (e) {
             panel.innerHTML = `Error: ${e.message}`;
         }
@@ -449,25 +496,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function startTaskWorkflow(taskTemplate, panel) {
         const inputs = {};
-        
+        const taskId = `task-${Date.now()}`;
+
         // This function will collect all needed inputs from the user
         async function collectInputs(index = 0) {
+            // Base case: All inputs have been collected, or there were none to start with.
             if (index >= taskTemplate.inputs.length) {
-                // All inputs collected, start the agent
-                switchToTab('logs');
-                const logsPanel = document.querySelector('.tab-panel[data-tab-id="logs"] pre');
-                if (logsPanel) logsPanel.textContent = '';
-                logHistory.length = 0;
-                
+                // Now that we have all inputs, start the agent in a new tab.
+                const outputPanel = createTab(taskTemplate.title, true, taskId);
+                outputPanel.innerHTML = `<h3>Starting task: ${taskTemplate.title}...</h3>`;
+                setTabStatus(outputPanel, 'running');
+
                 socket.send(JSON.stringify({
                     type: 'agent-task-from-library',
-                    taskId: taskTemplate.id,
+                    taskId: taskId, // This is the unique ID for this specific run
+                    taskTemplateId: taskTemplate.id, // This is the ID from the library
                     inputs: inputs
                 }));
-                closeTab(panel.dataset.tabId);
+                
+                // Close the original task library or input-gathering tab
+                if (panel) {
+                    closeTab(panel.dataset.tabId);
+                }
                 return;
             }
 
+            // Recursive step: Collect the next input.
             const input = taskTemplate.inputs[index];
             panel.innerHTML = `<h3>${taskTemplate.title}</h3><p>${input.message}</p>`;
 
@@ -477,23 +531,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const treeData = await response.json();
                 const treeRoot = document.createElement('ul');
                 treeRoot.className = 'file-tree';
-                if (treeData && treeData.children) {
+                if (treeData && treeData.children && treeData.children.length > 0) {
                     treeData.children.forEach(node => {
                         treeRoot.appendChild(renderFileTree(node, (filePath) => {
                             inputs[input.name] = filePath;
                             collectInputs(index + 1); // Recurse for next input
                         }));
                     });
+                } else {
+                    panel.innerHTML += '<p>No suitable files found for this task.</p>';
                 }
                 panel.appendChild(treeRoot);
             } else if (input.type === 'symbol') {
                 const response = await fetch('/api/list-symbols', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filePath: inputs.filePath }),
+                    body: JSON.stringify({ filePath: inputs.filePath }), // Assumes filePath was collected previously
                 });
                 const symbols = await response.json();
                 const symbolList = document.createElement('ul');
+                symbolList.className = 'symbol-list'; // Add a class for styling if needed
                 symbols.forEach(symbol => {
                     const li = document.createElement('li');
                     li.textContent = symbol;
@@ -505,13 +562,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 panel.appendChild(symbolList);
             } else { // 'text' input
-                const text = prompt(input.message);
-                if (!text || !text.trim()) {
-                    closeTab(panel.dataset.tabId);
-                    return; // Cancel task
-                }
-                inputs[input.name] = text;
-                await collectInputs(index + 1);
+                const form = document.createElement('form');
+                form.className = 'input-form';
+                const textInput = document.createElement('input');
+                textInput.type = 'text';
+                textInput.required = true;
+                const submitButton = document.createElement('button');
+                submitButton.type = 'submit';
+                submitButton.textContent = 'Continue';
+                
+                form.appendChild(textInput);
+                form.appendChild(submitButton);
+                
+                form.onsubmit = (e) => {
+                    e.preventDefault();
+                    inputs[input.name] = textInput.value;
+                    collectInputs(index + 1);
+                };
+                panel.appendChild(form);
+                textInput.focus();
             }
         }
         
@@ -613,6 +682,38 @@ document.addEventListener('DOMContentLoaded', () => {
             panel.appendChild(treeRoot);
         } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
+
+    function renderFileTree(node, onFileSelect) {
+        const li = document.createElement('li');
+        li.className = `tree-${node.type}`;
+        
+        const itemSpan = document.createElement('span');
+        itemSpan.className = 'tree-item';
+        itemSpan.textContent = node.name;
+        li.appendChild(itemSpan);
+
+        if (node.type === 'folder') {
+            li.classList.add('collapsed'); // Start with folders collapsed
+            const childrenUl = document.createElement('ul');
+            if (node.children) {
+                node.children.forEach(child => {
+                    childrenUl.appendChild(renderFileTree(child, onFileSelect));
+                });
+            }
+            li.appendChild(childrenUl);
+
+            itemSpan.onclick = () => {
+                li.classList.toggle('collapsed');
+            };
+        } else { // It's a file
+            itemSpan.onclick = () => {
+                onFileSelect(node.path);
+            };
+        }
+        
+        return li;
+    }
+
     async function onFileSelectForTest(filePath, panel) {
         const symbol = prompt(`Enter the symbol (function/class name) for which to generate tests in ${filePath}:`);
         if (!symbol || !symbol.trim()) {

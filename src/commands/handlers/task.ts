@@ -6,6 +6,8 @@
 import { AppContext } from '../../types.js';
 import { runAgent, AgentUpdate } from '../../core/agent-core.js';
 import inquirer from 'inquirer';
+import { ALL_TOOLS } from '../../ai/index.js';
+
 
 export async function handleTaskCommand(context: AppContext): Promise<void> {
   const { logger } = context;
@@ -56,7 +58,8 @@ export async function handleTaskCommand(context: AppContext): Promise<void> {
   };
 
   try {
-    await runAgent(userTask, context, onUpdate, onPrompt);
+    const allToolNames = Object.keys(ALL_TOOLS) as string[];
+    await runAgent(userTask, context, onUpdate, onPrompt, allToolNames);
   } catch (error) {
     spinner.fail('An unexpected error occurred in the agent.');
     logger.error(error);

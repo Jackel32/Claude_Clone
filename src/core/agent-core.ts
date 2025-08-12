@@ -11,7 +11,7 @@ import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
 import { getSymbolContent, listSymbolsInFile, scanProject } from '../codebase/index.js';
 import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
-import inquirer from 'inquirer'; // Note: This creates a CLI dependency
+import { ALL_TOOLS, TASK_LIBRARY } from '../ai/index.js';
 
 const execAsync = promisify(exec);
 
@@ -26,18 +26,43 @@ export async function runAgent(
     userTask: string,
     context: AppContext,
     onUpdate: AgentCallback,
-    onPrompt: (question: string) => Promise<string>
+    onPrompt: (question: string) => Promise<string>,
+    requiredTools: string[],
+    taskTemplateId?: string
 ) {  
   const { logger, aiProvider } = context;
   const files = await scanProject(context.args.path || '.');
-  const initialContext = files.join('\n');
+  let initialContext = `Files in the project:\n${files.join('\n')}`;
+
+  if (taskTemplateId === 'analyze-task-tools') {
+      try {
+          const libraryJson = JSON.stringify(TASK_LIBRARY, null, 2);
+          initialContext = `You have been asked to analyze the following TASK_LIBRARY:\n\n${libraryJson}\n\n---\n\n${initialContext}`;
+      } catch (e) {
+          logger.error(e, "Failed to serialize TASK_LIBRARY for agent context");
+      }
+  }
+
   let history = '';
   const maxTurns = 10;
+
+  const allToolNames = Object.keys(ALL_TOOLS);
+  for (const tool of requiredTools) {
+      if (!allToolNames.includes(tool)) {
+          onUpdate({ type: 'error', content: `Task requires tool "${tool}", but it is not a valid tool.` });
+          return;
+      }
+  }
 
   for (let i = 0; i < maxTurns; i++) {
     let responseJson;
     try {
-      const prompt = constructReActPrompt(userTask, history, initialContext);
+      const prompt = constructReActPrompt(
+        userTask,
+        history,
+        initialContext,
+        requiredTools as (keyof typeof ALL_TOOLS)[]
+      );
       const response = await aiProvider.invoke(prompt, false);
       const rawResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (!rawResponse) throw new Error("AI returned an empty response.");

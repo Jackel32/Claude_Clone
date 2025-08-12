@@ -13,8 +13,7 @@ import { runIndex, runInit } from '../core/index-core.js';
 import { logger } from '../logger/index.js';
 import { getIndexer } from '../codebase/indexer.js';
 import { getChatContext } from '../core/chat-core.js';
-import { constructChatPrompt } from '../ai/index.js';
-import { TASK_LIBRARY } from '../ai/prompt-library.js';
+import { constructChatPrompt, TASK_LIBRARY, ToolName } from '../ai/index.js';
 
 export function initializeWebSocketServer(server: import('http').Server, app: express.Application, appContext: Omit<AppContext, 'args'>) {
     const wss = new WebSocketServer({ server });
@@ -46,7 +45,7 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
 
                 const activeRepo = app.get('CODE_ANALYSIS_ROOT');
                 
-                if (!activeRepo && data.type !== 'start-init' && data.type !== 'agent-task-from-library' && data.type !== 'chat') {
+                if (!activeRepo && !['start-init', 'agent-task-from-library', 'chat'].includes(data.type)) {
                      ws.send(JSON.stringify({ type: 'error', content: 'No active repository selected.' }));
                      return;
                 }
@@ -56,7 +55,6 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                     const fullUpdate = { ...update, taskId: data.taskId };
                     onUpdate(fullUpdate);
 
-                    // If indexing is finished, resend the original chat message
                     if (fullUpdate.type === 'finish' && pendingUserMessage && data.type === 'start-indexing') {
                         logger.info('Indexing finished, resending pending chat message.');
                         ws.send(JSON.stringify(pendingUserMessage));
@@ -78,8 +76,8 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                         break;
                     
                     case 'agent-task-from-library': {
-                        const { taskId, inputs } = data;
-                        const taskTemplate = TASK_LIBRARY.find(t => t.id === taskId);
+                        const { taskId, taskTemplateId, inputs } = data;
+                        const taskTemplate = TASK_LIBRARY.find(t => t.id === taskTemplateId);
                         if (taskTemplate) {
                             const userTask = taskTemplate.prompt(inputs);
                             
@@ -102,9 +100,9 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                                     ws.send(JSON.stringify(promptMessage));
                                 });
                             };
-                            await runAgent(userTask, agentContext, taskCallback, onAgentPrompt);
+                            await runAgent(userTask, agentContext, taskCallback, onAgentPrompt, taskTemplate.requiredTools as ToolName[], taskTemplateId);
                         } else {
-                            onUpdate({ type: 'error', content: `Unknown task ID: ${taskId}`, taskId: data.taskId });
+                            onUpdate({ type: 'error', content: `Unknown task ID: ${taskTemplateId}`, taskId: taskId });
                         }
                         break;
                     }

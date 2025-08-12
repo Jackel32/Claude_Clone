@@ -80,3 +80,24 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helve
 #index-now-btn:hover { background-color: #1775b8; }
 #index-cancel-btn { background-color: #3c3c3c; color: #d4d4d4; }
 #index-cancel-btn:hover { background-color: #4a4a4a; }
+
+/* --- Task Library Card Layout --- */
+.task-library-container { display: flex; flex-wrap: wrap; gap: 20px; padding: 10px; }
+.task-role-group { background-color: #2a2d2e; border: 1px solid #3c3c3c; border-radius: 8px; padding: 20px; flex: 1 1 300px; display: flex; flex-direction: column; }
+.task-role-group h4 { margin-top: 0; padding-bottom: 10px; border-bottom: 1px solid #4a4a4a; color: #cccccc; font-size: 1.2em; }
+.task-role-group ul { list-style: none; padding: 0; margin: 0; }
+.task-role-group li { padding: 12px 8px; cursor: pointer; border-radius: 4px; transition: background-color 0.2s; }
+.task-role-group li:hover { background-color: #3f3f46; }
+.task-role-group li strong { color: #d4d4d4; font-weight: 500; }
+.task-role-group li p { font-size: 0.9em; color: #9e9e9e; margin: 4px 0 0 0; }
+
+/* --- File Tree Styles --- */
+.file-tree { list-style: none; padding-left: 20px; margin-top: 15px; }
+.file-tree ul { list-style: none; padding-left: 20px; }
+.file-tree li { padding: 3px 0; }
+.tree-item { cursor: pointer; padding: 3px 5px; border-radius: 3px; }
+.tree-item:hover { background-color: #3f3f46; }
+.tree-folder > .tree-item::before { content: '📁 '; margin-right: 5px; }
+.tree-folder:not(.collapsed) > .tree-item::before { content: '📂 '; margin-right: 5px; }
+.tree-file > .tree-item::before { content: '📄 '; margin-right: 5px; }
+.tree-folder.collapsed > ul { display: none; }
