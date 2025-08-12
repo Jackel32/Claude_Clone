@@ -61,10 +61,27 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         ],
         prompt: (inputs) => `Perform a static analysis on the file at "${inputs.filePath}". Identify all unused variables, functions, classes, and imports that are not exported or called from within the file. After identifying them, remove the dead code. Return the complete, cleaned-up file content.`,
     },
+    {
+        id: 'create-github-action-workflow',
+        title: 'Create CI/CD GitHub Action',
+        description: 'Generate a basic CI/CD workflow file for GitHub Actions to build and test the project.',
+        inputs: [],
+        prompt: () => `Analyze the 'package.json' file to identify the build and test scripts. Based on this, generate a new GitHub Actions workflow file at '.github/workflows/ci.yml'. This workflow should trigger on pushes to the main branch, set up the correct Node.js version, install dependencies, and run the build and test commands.`,
+    },
 
     // ===================================
     // ==   For the Tester 🧪           ==
     // ===================================
+    {
+        id: 'suggest-regression-tests',
+        title: 'Suggest Regression Tests',
+        description: 'Analyze a git diff and suggest which areas of the application need regression testing.',
+        inputs: [
+            { name: 'baseBranch', type: 'text', message: 'Enter the base branch (e.g., main):' },
+            { name: 'compareBranch', type: 'text', message: 'Enter the feature branch to analyze:' },
+        ],
+        prompt: (inputs) => `Analyze the git diff between the "${inputs.baseBranch}" and "${inputs.compareBranch}" branches. Based on the files and code that have changed, generate a list of features and user flows that should be prioritized for regression testing to ensure no new bugs were introduced. The output should be a markdown checklist.`,
+    },
     {
         id: 'generate-unit-tests',
         title: 'Generate Unit Tests',
@@ -102,6 +119,24 @@ export const TASK_LIBRARY: TaskTemplate[] = [
     // ==  For the Architect 🏛️        ==
     // ===================================
     {
+        id: 'draft-decision-record',
+        title: 'Draft Architecture Decision Record',
+        description: 'Create an Architecture Decision Record (ADR) for a technical choice.',
+        inputs: [
+            { name: 'decision', type: 'text', message: 'What is the technical decision that was made?' },
+            { name: 'context', type: 'text', message: 'What is the context or problem that led to this decision?' },
+            { name: 'alternatives', type: 'text', message: 'What other options were considered (comma-separated)?' },
+        ],
+        prompt: (inputs) => `Generate an Architecture Decision Record (ADR) in markdown format. The ADR should document the decision to "${inputs.decision}". Use the provided context to fill out the 'Context' section. List the considered alternatives: "${inputs.alternatives}". The main body of the ADR should detail the positive consequences and trade-offs of the chosen decision. Create this as a new file named 'docs/adr/001-record-of-decision.md'.`,
+    },
+    {
+        id: 'analyze-circular-dependencies',
+        title: 'Analyze for Circular Dependencies',
+        description: 'Scan the project to identify potential circular dependency issues between modules.',
+        inputs: [],
+        prompt: () => `Analyze the import/export statements across all TypeScript files in the 'src' directory. Identify potential circular dependencies where Module A imports Module B, and Module B (or a module it imports) in turn imports Module A. Generate a markdown report listing any circular dependency chains found and suggest potential refactoring strategies to break the cycle.`,
+    },
+    {
         id: 'write-readme',
         title: 'Generate Project README',
         description: 'Performs a full-codebase analysis and generates a new README.md file.',
@@ -129,6 +164,26 @@ export const TASK_LIBRARY: TaskTemplate[] = [
     // ===================================
     // == For the Product Manager 📝    ==
     // ===================================
+    {
+        id: 'create-feature-rollout-plan',
+        title: 'Create Feature Rollout Plan',
+        description: 'Generate a phased rollout plan for a new feature, including communication points.',
+        inputs: [
+            { name: 'featureName', type: 'text', message: 'What is the name of the new feature?' },
+            { name: 'targetAudience', type: 'text', message: 'Who is the target audience for this feature?' },
+        ],
+        prompt: (inputs) => `Create a phased rollout plan in markdown for a new feature called "${inputs.featureName}" targeting "${inputs.targetAudience}". The plan should include phases like "Internal Testing (Dogfooding)," "Beta Release to 10% of Users," and "Full Public Release." For each phase, list the objectives, success metrics, and a draft of the communication message to be sent to users.`,
+    },
+    {
+        id: 'generate-api-docs',
+        title: 'Generate API Documentation',
+        description: 'Create user-friendly documentation for an API endpoint from its source code.',
+        inputs: [
+            { name: 'filePath', type: 'file', message: 'Select the file containing the API route definition:' },
+            { name: 'symbolName', type: 'symbol', message: 'Select the function or class that defines the API routes:' },
+        ],
+        prompt: (inputs) => `Analyze the code for "${inputs.symbolName}" in the file "${inputs.filePath}". This code defines one or more API endpoints. Generate user-facing API documentation in markdown format. For each endpoint, include the HTTP method, the URL path, a description of what it does, a list of any parameters (path, query, or body), and an example of a successful response.`,
+    },
     {
         id: 'generate-user-stories',
         title: 'Generate User Stories',
