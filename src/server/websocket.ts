@@ -29,6 +29,44 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
             logger.info({ wsMessageOut: update }, 'Sending WebSocket message to client');
             ws.send(JSON.stringify(update));
         };
+
+        // --- Refactored Chat Logic ---
+        async function handleChatLogic(query: string, context: AppContext) {
+            conversationHistory.push({ role: 'user', content: query });
+
+            const contextStr = await getChatContext(query, context);
+            const prompt = constructChatPrompt(conversationHistory, contextStr);
+            const stream = await aiProvider.invoke(prompt, true);
+
+            ws.send(JSON.stringify({ type: 'start' }));
+            const reader = stream.getReader();
+            const decoder = new TextDecoder();
+            let fullResponse = '';
+            let accumulatedText = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                fullResponse += decoder.decode(value, { stream: true });
+            }
+            
+            try {
+                const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
+                for (const chunk of responseArray) {
+                    const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (text) {
+                        ws.send(JSON.stringify({ type: 'chunk', content: text }));
+                        accumulatedText += text;
+                    }
+                }
+            } catch (error) {
+                 ws.send(JSON.stringify({ type: 'chunk', content: fullResponse }));
+                 accumulatedText = fullResponse;
+            }
+
+            conversationHistory.push({ role: 'assistant', content: accumulatedText });
+            ws.send(JSON.stringify({ type: 'end' }));
+        }
         
         ws.on('message', async (message: Buffer) => {
             try {
@@ -50,15 +88,17 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                      return;
                 }
 
-                const agentContext = { ...appContext, args: { path: activeRepo } };
-                const taskCallback = (update: Omit<AgentUpdate, 'taskId'>) => {
+                const agentContext: AppContext = { ...appContext, args: { path: activeRepo } };
+                
+                const taskCallback = async (update: Omit<AgentUpdate, 'taskId'>) => {
                     const fullUpdate = { ...update, taskId: data.taskId };
                     onUpdate(fullUpdate);
 
                     if (fullUpdate.type === 'finish' && pendingUserMessage && data.type === 'start-indexing') {
-                        logger.info('Indexing finished, resending pending chat message.');
-                        ws.send(JSON.stringify(pendingUserMessage));
-                        pendingUserMessage = null;
+                        logger.info('Indexing finished, processing pending chat message directly.');
+                        const messageToProcess = pendingUserMessage;
+                        pendingUserMessage = null; // Clear it first
+                        await handleChatLogic(messageToProcess.content, agentContext);
                     }
                 };
                 
@@ -115,42 +155,8 @@ export function initializeWebSocketServer(server: import('http').Server, app: ex
                             ws.send(JSON.stringify({ type: 'index-required' }));
                             return;
                         }
-
-                        const query = data.content;
-                        conversationHistory.push({ role: 'user', content: query });
-
-                        const contextStr = await getChatContext(query, agentContext);
-                        const prompt = constructChatPrompt(conversationHistory, contextStr);
-                        const stream = await aiProvider.invoke(prompt, true);
-
-                        ws.send(JSON.stringify({ type: 'start' }));
-                        const reader = stream.getReader();
-                        const decoder = new TextDecoder();
-                        let fullResponse = '';
-                        let accumulatedText = '';
-
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            fullResponse += decoder.decode(value, { stream: true });
-                        }
-                        
-                        try {
-                            const responseArray = JSON.parse(`[${fullResponse.replace(/}\s*{/g, '},{')}]`);
-                            for (const chunk of responseArray) {
-                                const text = chunk?.candidates?.[0]?.content?.parts?.[0]?.text;
-                                if (text) {
-                                    ws.send(JSON.stringify({ type: 'chunk', content: text }));
-                                    accumulatedText += text;
-                                }
-                            }
-                        } catch (error) {
-                             ws.send(JSON.stringify({ type: 'chunk', content: fullResponse }));
-                             accumulatedText = fullResponse;
-                        }
-
-                        conversationHistory.push({ role: 'assistant', content: accumulatedText });
-                        ws.send(JSON.stringify({ type: 'end' }));
+                        // If index is ready, just call the main chat logic.
+                        await handleChatLogic(data.content, agentContext);
                         break;
                     }
 

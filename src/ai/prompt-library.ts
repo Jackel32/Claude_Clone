@@ -8,7 +8,7 @@ export type SupportedLanguage = 'typescript' | 'python' | 'csharp' | 'c' | 'cpp'
 
 export interface TaskInput {
     name: string; // e.g., 'filePath', 'symbolName'
-    type: 'file' | 'testable-file' | 'symbol' | 'text';
+    type: 'file' | 'testable-file' | 'symbol' | 'text' | 'git-branch' | 'git-commit';
     message: string;
 }
 
@@ -16,7 +16,7 @@ export interface TaskTemplate {
     id: string;
     title: string;
     description: string;
-    group: 'Software Engineer' | 'Tester' | 'Architect' | 'Product Manager';
+    group: 'Software Engineer 👩‍💻' | 'Tester 🧪' | 'Architect 🏛️' | 'Product Manager 📝';
     inputs: TaskInput[];
     requiredTools: ('writeFile'  | 'executeCommand'   | 'readFile'   |
                     'listFiles'  | 'listSymbols'      | 'readSymbol' |
@@ -34,7 +34,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'add-error-handling',
         title: 'Add Error Handling',
         description: 'Analyze a function and add robust try/catch error handling to it.',
-        group: 'Software Engineer',
+        group: 'Software Engineer 👩‍💻',
         requiredTools: ['readFile', 'writeFile', 'readSymbol'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the file containing the function:' },
@@ -42,53 +42,53 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         ],
         prompt: (inputs) => `Analyze the function named "${inputs.symbolName}" in the file at "${inputs.filePath}". Modify the function to include robust try/catch error handling for all potentially problematic operations (e.g., I/O, API calls, JSON parsing). Return the complete, updated file content.`,
     },
-    {
-        id: 'refactor-to-async-await',
-        title: 'Refactor to Async/Await',
-        description: 'Convert a function that uses promise chains (.then/.catch) to modern async/await syntax.',
-        group: 'Software Engineer',
-        supportedLanguages: ['typescript', 'python', 'csharp'],
-        requiredTools: ['readFile', 'writeFile', 'readSymbol'],
-        inputs: [
-            { name: 'filePath', type: 'file', message: 'Select the file containing the function to refactor:' },
-            { name: 'symbolName', type: 'symbol', message: 'Select the function to convert to async/await:' },
-        ],
-        prompt: (inputs) => `Analyze the function named "${inputs.symbolName}" in the file at "${inputs.filePath}". Refactor this specific function from using .then() and .catch() promise chains to the modern async/await syntax. Ensure that the functionality remains identical. Return the complete, updated file content.`,
-    },
-    {
-        id: 'implement-api-client',
-        title: 'Implement API Client',
-        description: 'Generate a TypeScript function to fetch data from a specified public API endpoint.',
-        group: 'Software Engineer',
-        supportedLanguages: ['typescript', 'python', 'csharp'],
-        requiredTools: ['writeFile'],
-        inputs: [
-            { name: 'apiUrl', type: 'text', message: 'Enter the full URL of the public API endpoint:' },
-            { name: 'functionName', type: 'text', message: 'What should the fetch function be named?' },
-            { name: 'outputPath', type: 'text', message: 'Enter the path for the new file (e.g., src/clients/api.ts):' },
-        ],
-        prompt: (inputs) => `Create a new TypeScript file at "${inputs.outputPath}". In this file, write an async function named "${inputs.functionName}" that fetches data from the following public API endpoint: "${inputs.apiUrl}". The function should use the built-in 'fetch' API, handle potential network errors with a try/catch block, and parse the JSON response. Include basic JSDoc comments explaining what the function does.`,
-    },
+    // {
+    //     id: 'refactor-to-async-await',
+    //     title: 'Refactor to Async/Await',
+    //     description: 'Convert a function that uses promise chains (.then/.catch) to modern async/await syntax.',
+    //     group: 'Software Engineer 👩‍💻',
+    //     supportedLanguages: ['typescript', 'python', 'csharp'],
+    //     requiredTools: ['readFile', 'writeFile', 'readSymbol'],
+    //     inputs: [
+    //         { name: 'filePath', type: 'file', message: 'Select the file containing the function to refactor:' },
+    //         { name: 'symbolName', type: 'symbol', message: 'Select the function to convert to async/await:' },
+    //     ],
+    //     prompt: (inputs) => `Analyze the function named "${inputs.symbolName}" in the file at "${inputs.filePath}". Refactor this specific function from using .then() and .catch() promise chains to the modern async/await syntax. Ensure that the functionality remains identical. Return the complete, updated file content.`,
+    // },
+    // {
+    //     id: 'implement-api-client',
+    //     title: 'Implement API Client',
+    //     description: 'Generate a TypeScript function to fetch data from a specified public API endpoint.',
+    //     group: 'Software Engineer 👩‍💻',
+    //     supportedLanguages: ['typescript', 'python', 'csharp'],
+    //     requiredTools: ['writeFile'],
+    //     inputs: [
+    //         { name: 'apiUrl', type: 'text', message: 'Enter the full URL of the public API endpoint:' },
+    //         { name: 'functionName', type: 'text', message: 'What should the fetch function be named?' },
+    //         { name: 'outputPath', type: 'text', message: 'Enter the path for the new file (e.g., src/clients/api.ts):' },
+    //     ],
+    //     prompt: (inputs) => `Create a new TypeScript file at "${inputs.outputPath}". In this file, write an async function named "${inputs.functionName}" that fetches data from the following public API endpoint: "${inputs.apiUrl}". The function should use the built-in 'fetch' API, handle potential network errors with a try/catch block, and parse the JSON response. Include basic JSDoc comments explaining what the function does.`,
+    // },
     {
         id: 'find-and-remove-dead-code',
         title: 'Find & Remove Dead Code',
         description: 'Analyze a file to identify and remove unused functions, variables, or imports.',
-        group: 'Software Engineer',
+        group: 'Software Engineer 👩‍💻',
         requiredTools: ['readFile', 'writeFile'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the file to clean up:' },
         ],
         prompt: (inputs) => `Perform a static analysis on the file at "${inputs.filePath}". Identify all unused variables, functions, classes, and imports that are not exported or called from within the file. After identifying them, remove the dead code. Return the complete, cleaned-up file content.`,
     },
-    {
-        id: 'create-github-action-workflow',
-        title: 'Create CI/CD GitHub Action',
-        description: 'Generate a basic CI/CD workflow file for GitHub Actions to build and test the project.',
-        group: 'Software Engineer',
-        requiredTools: ['readFile', 'writeFile'],
-        inputs: [],
-        prompt: () => `Analyze the 'package.json' file to identify the build and test scripts. Based on this, generate a new GitHub Actions workflow file at '.github/workflows/ci.yml'. This workflow should trigger on pushes to the main branch, set up the correct Node.js version, install dependencies, and run the build and test commands.`,
-    },
+    // {
+    //     id: 'create-github-action-workflow',
+    //     title: 'Create CI/CD GitHub Action',
+    //     description: 'Generate a basic CI/CD workflow file for GitHub Actions to build and test the project.',
+    //     group: 'Software Engineer 👩‍💻',
+    //     requiredTools: ['readFile', 'writeFile'],
+    //     inputs: [],
+    //     prompt: () => `Analyze the 'package.json' file to identify the build and test scripts. Based on this, generate a new GitHub Actions workflow file at '.github/workflows/ci.yml'. This workflow should trigger on pushes to the main branch, set up the correct Node.js version, install dependencies, and run the build and test commands.`,
+    // },
 
     // ===================================
     // ==   For the Tester 🧪           ==
@@ -97,11 +97,11 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'suggest-regression-tests',
         title: 'Suggest Regression Tests',
         description: 'Analyze a git diff and suggest which areas of the application need regression testing.',
-        group: 'Tester',
+        group: 'Tester 🧪',
         requiredTools: ['getGitDiff'],
         inputs: [
-            { name: 'baseBranch', type: 'text', message: 'Enter the base branch (e.g., main):' },
-            { name: 'compareBranch', type: 'text', message: 'Enter the feature branch to analyze:' },
+            { name: 'baseBranch', type: 'git-branch', message: 'Select the BASE branch (e.g., main):' },
+            { name: 'compareBranch', type: 'git-branch', message: 'Select the COMPARE branch (e.g., your feature branch):' },
         ],
         prompt: (inputs) => `Analyze the git diff between the "${inputs.baseBranch}" and "${inputs.compareBranch}" branches. Based on the files and code that have changed, generate a list of features and user flows that should be prioritized for regression testing to ensure no new bugs were introduced. The output should be a markdown checklist.`,
     },
@@ -109,7 +109,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'generate-unit-tests',
         title: 'Generate Unit Tests',
         description: 'Create a full suite of unit tests for all functions in a selected file.',
-        group: 'Tester',
+        group: 'Tester 🧪',
         requiredTools: ['readFile', 'writeFile', 'listSymbols'],
         inputs: [
             { name: 'filePath', type: 'testable-file', message: 'Select the file to generate tests for:' },
@@ -121,7 +121,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'generate-e2e-test-spec',
         title: 'Generate E2E Test Spec',
         description: 'Create a new end-to-end test file for a user journey using Vitest and Supertest.',
-        group: 'Tester',
+        group: 'Tester 🧪',
         supportedLanguages: ['typescript'],
         requiredTools: ['writeFile'],
         inputs: [
@@ -134,7 +134,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'generate-mock-data',
         title: 'Generate Mock Data',
         description: 'Create a JSON file with realistic mock data based on a TypeScript interface.',
-        group: 'Tester',
+        group: 'Tester 🧪',
         requiredTools: ['readFile', 'writeFile', 'readSymbol'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the file containing the TypeScript interface:' },
@@ -148,7 +148,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'analyze-test-coverage',
         title: 'Analyze Test Coverage Report',
         description: 'Read a test coverage report and suggest specific test cases for uncovered lines.',
-        group: 'Tester',
+        group: 'Tester 🧪',
         requiredTools: ['readFile'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the test coverage report file (e.g., coverage/lcov.info or coverage.json):' },
@@ -159,7 +159,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
     id: 'generate-tests-from-requirements',
     title: 'Generate Tests from Requirements',
     description: 'Read a requirements document and generate corresponding unit test stubs.',
-    group: 'Tester',
+    group: 'Tester 🧪',
     requiredTools: ['readFile', 'writeFile'],
     inputs: [
         { name: 'requirementsFile', type: 'file', message: 'Select the markdown file with the feature requirements:' },
@@ -174,7 +174,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'draft-decision-record',
         title: 'Draft Architecture Decision Record',
         description: 'Create an Architecture Decision Record (ADR) for a technical choice.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['writeFile'],
         inputs: [
             { name: 'decision', type: 'text', message: 'What is the technical decision that was made?' },
@@ -187,7 +187,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'analyze-circular-dependencies',
         title: 'Analyze for Circular Dependencies',
         description: 'Scan the project to identify potential circular dependency issues between modules.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['createPlan', 'listFiles', 'readFile'],
         inputs: [],
         prompt: () => `Analyze the import/export statements across all TypeScript files in the 'src' directory. Identify potential circular dependencies where Module A imports Module B, and Module B (or a module it imports) in turn imports Module A. Generate a markdown report listing any circular dependency chains found and suggest potential refactoring strategies to break the cycle.`,
@@ -196,7 +196,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'write-readme',
         title: 'Generate Project README',
         description: 'Performs a full-codebase analysis and generates a new README.md file.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['createPlan', 'writeFile', 'listFiles', 'readFile'],
         inputs: [],
         prompt: () => `Perform a comprehensive analysis of the entire codebase and generate a detailed, professional README.md file. The README should include sections for Project Overview, Features, Architecture, and Setup Instructions. Overwrite the existing README.md file with this new content.`,
@@ -205,7 +205,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'create-architecture-diagram',
         title: 'Create Architecture Diagram',
         description: 'Generate a Mermaid.js diagram to visualize the project architecture.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['createPlan', 'listFiles', 'readFile'],
         inputs: [],
         prompt: () => `Analyze the entire codebase, focusing on the relationships between the major components (e.g., server, database, AI provider, file system, client UI). Generate a sequence or flowchart diagram using Mermaid.js syntax that visualizes this architecture and data flow. The diagram should be detailed enough to be useful for new developers. Return only the raw Mermaid.js markdown block.`,
@@ -214,7 +214,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'propose-tech-stack-migration',
         title: 'Propose Tech Stack Migration',
         description: 'Analyze the codebase and propose a plan for migrating to a new technology.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['createPlan', 'listFiles', 'readFile', 'writeFile'],
         inputs: [
             { name: 'currentTech', type: 'text', message: 'What is the current technology to be replaced (e.g., Express.js)?' },
@@ -226,7 +226,7 @@ export const TASK_LIBRARY: TaskTemplate[] = [
         id: 'perform-security-audit',
         title: 'Perform Basic Security Audit',
         description: 'Scan the codebase for common security vulnerabilities like hardcoded secrets.',
-        group: 'Architect',
+        group: 'Architect 🏛️',
         requiredTools: ['createPlan', 'listFiles', 'readFile', 'executeCommand'],
         inputs: [],
         prompt: () => `Perform a basic security audit of the entire codebase. Your plan should involve listing all files and then reading each one to scan for common vulnerabilities, specifically looking for:
@@ -243,7 +243,7 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'create-feature-rollout-plan',
         title: 'Create Feature Rollout Plan',
         description: 'Generate a phased rollout plan for a new feature, including communication points.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['readFile', 'writeFile', 'executeCommand'],
         inputs: [
             { name: 'featureName', type: 'text', message: 'What is the name of the new feature?' },
@@ -255,7 +255,7 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'generate-api-docs',
         title: 'Generate API Documentation',
         description: 'Create user-friendly documentation for an API endpoint from its source code.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['readFile', 'writeFile'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the file containing the API route definition:' },
@@ -267,7 +267,7 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'generate-user-stories',
         title: 'Generate User Stories',
         description: 'Break down a high-level feature idea into Agile user stories with acceptance criteria.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['readFile', 'writeFile', 'executeCommand'],
         inputs: [
             { name: 'featureIdea', type: 'text', message: 'Describe the high-level feature idea:' },
@@ -278,11 +278,11 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'create-release-notes',
         title: 'Draft Release Notes',
         description: 'Analyze recent git commits between two tags/commits and draft release notes.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['getRecentCommits', 'getGitDiff', 'executeCommand'],
         inputs: [
-            { name: 'startCommit', type: 'text', message: 'Enter the starting git tag or commit hash (older):' },
-            { name: 'endCommit', type: 'text', message: 'Enter the ending git tag or commit hash (newer):' },
+            { name: 'startCommit', type: 'git-commit', message: 'Enter the starting git tag or commit hash (older):' },
+            { name: 'endCommit', type: 'git-commit', message: 'Enter the ending git tag or commit hash (newer):' },
         ],
         prompt: (inputs) => `Analyze the git history between commits "${inputs.startCommit}" and "${inputs.endCommit}". Based on the commit messages, draft a set of user-facing release notes in markdown. Categorize the changes into sections like "🚀 New Features," "🐛 Bug Fixes," and "🔧 Improvements."`,
     },
@@ -290,7 +290,7 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'analyze-user-feedback',
         title: 'Analyze User Feedback',
         description: 'Summarize raw user feedback into key themes, sentiment, and actionable insights.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['readFile', 'executeCommand'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select a file containing raw user feedback (e.g., feedback.txt):' },
@@ -301,7 +301,7 @@ Generate a markdown report summarizing your findings, listing the file path and 
         id: 'write-user-documentation',
         title: 'Write User Documentation',
         description: 'Generate user-facing "How To" documentation for a feature based on its code.',
-        group: 'Product Manager',
+        group: 'Product Manager 📝',
         requiredTools: ['readFile', 'readSymbol'],
         inputs: [
             { name: 'filePath', type: 'file', message: 'Select the file containing the feature\'s primary logic:' },

@@ -9,7 +9,7 @@ import { promisify } from 'util';
 import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js';
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
-import { getSymbolContent, listSymbolsInFile, scanProject } from '../codebase/index.js';
+import { getSymbolContent, listSymbolsInFile, queryVectorIndex, scanProject } from '../codebase/index.js';
 import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
 import { ALL_TOOLS, TASK_LIBRARY } from '../ai/index.js';
 
@@ -30,7 +30,7 @@ export async function runAgent(
     requiredTools: string[],
     taskTemplateId?: string
 ) {  
-  const { logger, aiProvider } = context;
+  const { logger, aiProvider, profile } = context;
   const files = await scanProject(context.args.path || '.');
   let initialContext = `Files in the project:\n${files.join('\n')}`;
 
@@ -152,6 +152,15 @@ export async function runAgent(
               throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
             }
             observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
+            break;
+          
+          case 'queryVectorIndex':
+            if (typeof action.query !== 'string') {
+              throw new Error("Action 'queryVectorIndex' is missing a 'query'.");
+            }
+            const topK = profile.rag?.topK || 5; // Use a slightly larger topK for the agent
+            const contextString = await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
+            observation = `Vector index query for "${action.query}" returned the following context:\n${contextString}`;
             break;
 
           case 'askUser':

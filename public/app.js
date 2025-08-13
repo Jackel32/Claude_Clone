@@ -542,6 +542,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     symbolList.appendChild(li);
                 });
                 panel.appendChild(symbolList);
+            } else if (input.type === 'git-branch') {
+                const response = await fetch('/api/branches');
+                const branches = await response.json();
+                const availableBranches = inputs.baseBranch ? branches.filter(b => b !== inputs.baseBranch) : branches;
+                const list = document.createElement('ul');
+                availableBranches.forEach(branch => {
+                    const li = document.createElement('li');
+                    li.textContent = branch;
+                    li.onclick = () => {
+                        inputs[input.name] = branch;
+                        collectInputs(index + 1);
+                    };
+                    list.appendChild(li);
+                });
+                panel.appendChild(list);
+            } else if (input.type === 'git-commit') {
+                const response = await fetch('/api/commits');
+                const commits = await response.json();
+                const list = document.createElement('ul');
+                commits.forEach(commitLine => {
+                    const [hash, ...rest] = commitLine.split('|');
+                    const li = document.createElement('li');
+                    li.textContent = `${hash.substring(0, 7)} - ${rest.join('|')}`;
+                    li.onclick = () => {
+                        inputs[input.name] = hash;
+                        collectInputs(index + 1);
+                    };
+                    list.appendChild(li);
+                });
+                panel.appendChild(list);
             } else { // 'text' input
                 const form = document.createElement('form');
                 form.className = 'input-form';
@@ -576,24 +606,40 @@ document.addEventListener('DOMContentLoaded', () => {
         socket.send(JSON.stringify({ type: 'get-report', taskId }));
     }
 
-    function showGenericFileDialog(title, onFileSelectCallback) {
-        const panel = createTab(title); // Assuming createTab exists
-        panel.innerHTML = `<h3>${title}: Select a file...</h3>`;
-
-        // This part is crucial: you need to provide a way for the user
-        // to select a file, and then call onFileSelectCallback(selectedFilePath, panel)
-        // once a file is chosen.
-
-        // For demonstration, let's simulate a file selection with a prompt for now:
-        const filePath = prompt(`Enter the path to the file for ${title}:`);
-        if (filePath && filePath.trim()) {
-            onFileSelectCallback(filePath.trim(), panel);
-        } else {
-            panel.innerHTML = `${title} cancelled.`;
+    async function applyChanges(filePath, newContent, panel) {
+        try {
+            const response = await fetch('/api/apply-changes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filePath, newContent }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Failed to apply changes.');
+            panel.innerHTML += `<p style="color: #4CAF50;">${result.message}</p>`;
+        } catch (e) {
+            panel.innerHTML += `<p style="color: #F44336;">Error applying changes: ${e.message}</p>`;
         }
+    }
 
-        // In a real application, this would involve rendering a file tree,
-        // input fields, or a file picker UI.
+    function showGenericFileDialog(title, onFileSelectCallback) {
+        const panel = createTab(title);
+        panel.innerHTML = `<h3>${title}: Select a file...</h3>`;
+        fetch('/api/file-tree').then(res => res.json()).then(treeData => {
+            const treeRoot = document.createElement('ul');
+            treeRoot.className = 'file-tree';
+            if (treeData && treeData.children && treeData.children.length > 0) {
+                treeData.children.forEach(node => {
+                    treeRoot.appendChild(renderFileTree(node, (filePath) => {
+                        onFileSelectCallback(filePath, panel);
+                    }));
+                });
+            } else {
+                panel.innerHTML += '<p>No files found in the project.</p>';
+            }
+            panel.appendChild(treeRoot);
+        }).catch(e => {
+            panel.innerHTML = `Error loading file tree: ${e.message}`;
+        });
     }
 
     async function showTestDialog() {
@@ -645,6 +691,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         return li;
+    }
+
+    async function onFileSelectForTest(filePath, panel) {
+        panel.innerHTML = `<h3>Select a symbol to test in ${filePath.split('/').pop().split('\\').pop()}:</h3>`;
+        const response = await fetch('/api/list-symbols', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath }),
+        });
+        const symbols = await response.json();
+        const symbolList = document.createElement('ul');
+        symbols.forEach(symbol => {
+            const li = document.createElement('li');
+            li.textContent = symbol;
+            li.onclick = () => onSymbolSelectForTest(filePath, symbol, panel);
+            symbolList.appendChild(li);
+        });
+        panel.appendChild(symbolList);
+    }
+
+    async function onSymbolSelectForTest(filePath, symbol, panel) {
+        const framework = prompt(`Enter the testing framework for "${symbol}":`, 'jest');
+        if (!framework || !framework.trim()) { closeTab(panel.dataset.tabId); return; }
+        panel.innerHTML = `<h3>Generating ${framework} test for "${symbol}"...</h3>`;
+        try {
+            const response = await fetch('/api/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath, symbol, framework }) });
+            if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
+            const { newContent } = await response.json();
+            document.querySelector(`.tab[data-tab-id="${panel.dataset.tabId}"] span:first-child`).textContent = `Test: ${symbol}`;
+            panel.innerHTML = `<h3>Generated Test for ${symbol}</h3><pre><code>${newContent.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>`;
+            const actions = document.createElement('div');
+            actions.className = 'actions';
+            const saveBtn = document.createElement('button');
+            saveBtn.textContent = 'Save to File';
+            saveBtn.onclick = () => {
+                const defaultPath = filePath.replace('.ts', '.test.ts').replace('.py', '_test.py');
+                const outputPath = prompt(`Enter path to save test file:`, defaultPath);
+                if (outputPath) applyChanges(outputPath, newContent, panel);
+            };
+            actions.appendChild(saveBtn);
+            panel.appendChild(actions);
+        } catch (e) { panel.innerHTML = `Error: ${e.message}`; }
     }
 
     async function showGitBranchesDialog() {

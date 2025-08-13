@@ -6,7 +6,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { getIndexer } from '../codebase/indexer.js';
 import { scanProject } from '../codebase/scanner.js';
-import { updateVectorIndex, getVectorIndex } from '../codebase/vectorizer.js';
+import { updateVectorIndex, getVectorIndex, setIndexCreatedState } from '../codebase/vectorizer.js';
 import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
 import { logger } from '../logger/index.js';
@@ -63,6 +63,8 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     if (!(await vectorIndex.isIndexCreated())) {
         onUpdate({ type: 'thought', content: 'Creating new vector index...' });
         await vectorIndex.createIndex();
+        // Explicitly set the state to true after creation to avoid race conditions.
+        setIndexCreatedState(projectRoot, true);
     }
 
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });

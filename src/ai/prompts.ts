@@ -166,6 +166,7 @@ export const ALL_TOOLS = {
     getRecentCommits: 'Gets a list of recent commits. Args: none.',
     askUser: 'Asks the user a question and gets their response. Args: "question".',
     createPlan: 'Creates a step-by-step plan for a high-level goal. Args: "goal".',
+    queryVectorIndex: 'Queries the vectorized codebase with a natural language question to find relevant code snippets. Use this first to get context before reading or writing files. Args: "query".',
     finish: 'Call this when the task is complete. Args: "summary".',
 };
 
@@ -188,6 +189,8 @@ export function constructReActPrompt(
         .join('\n');
 
     return `You are an expert AI agent. Your goal is to achieve the user's task by reasoning and taking one action at a time.
+A vector database of the codebase has already been indexed. To get context for the user's task, your first step should almost always be to use the 'queryVectorIndex' tool with a descriptive query.
+
 You have access to the following tools:
 ${toolDescriptions}
 - "finish": Call this when the task is complete. Args: "summary".
@@ -196,13 +199,13 @@ On each turn, you must respond with a JSON object containing your "thought" proc
 
 ---
 ## Example ##
-User Task: "Read the main entry point file."
+User Task: "Refactor the database connection function to be more resilient."
 Your JSON response:
 {
-  "thought": "The user wants me to read the main entry point. Based on the initial context, I see a 'package.json' which likely defines the entry point. I should read that file first to be sure.",
+  "thought": "First, I need to find the database connection function. I will use the vector index to search for 'database connection logic' to find the relevant file and code.",
   "action": {
-    "tool": "readFile",
-    "path": "package.json"
+    "tool": "queryVectorIndex",
+    "query": "database connection logic"
   }
 }
 ---
