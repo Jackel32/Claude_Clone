@@ -1,28 +1,14 @@
 services:
-  # This is the name of our application service
-  kinch-code-web:
-    # Use the image name we defined previously
-    image: kinch-code-web:latest
-    
-    # Build the image from the Dockerfile in the current directory
+  kinch-code-cli:
+    image: kinch-code-cli:latest
     build: .
-    
-    # Load environment variables from the .env file into the container
     env_file:
       - .env
-      
-    # Map the host port to the container port
-    # It reads WEB_PORT from the .env file, defaulting to 3000 if not set
-    ports:
-      - "${WEB_PORT:-3000}:3000"
-      
-    # Map the host directories into the container
     volumes:
-      # Mounts the codebase you want to analyze
+      # Mounts the codebase you want to analyze into the container
       - "${CODE_TO_ANALYZE_PATH:-.}:/app/code-to-analyze"
-      # Mounts your config/cache directory to make it persistent
+      # Mounts your config/cache directory to make it persistent across runs
       - "${CONFIG_PATH:-~/.claude-code}:/root/.claude-code"
-      
-    # Keep the container running interactively
-    stdin_open: true # Equivalent to -i
-    tty: true        # Equivalent to -t
+    # These two lines are essential for an interactive CLI session
+    stdin_open: true # Keeps the input stream open (like -i)
+    tty: true        # Allocates a pseudo-terminal (like -t)

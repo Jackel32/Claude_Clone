@@ -1,18 +1,12 @@
-/**
- * @file src/commands/handlers/task.ts
- * @description Handler for the agentic 'task' command using a ReAct loop.
- */
-
 import { AppContext } from '../../types.js';
 import { runAgent, AgentUpdate } from '../../core/agent-core.js';
-import inquirer from 'inquirer';
 import { ALL_TOOLS } from '../../ai/index.js';
-
 
 export async function handleTaskCommand(context: AppContext): Promise<void> {
   const { logger } = context;
   const ora = (await import('ora')).default;
-  
+  const inquirer = (await import('inquirer')).default;
+
   const { userTask } = await inquirer.prompt([{
     type: 'input',
     name: 'userTask',
@@ -24,36 +18,20 @@ export async function handleTaskCommand(context: AppContext): Promise<void> {
   const spinner = ora('Initializing agent...').start();
 
   const onUpdate = (update: AgentUpdate) => {
-    spinner.stop(); // Stop the spinner to print the update
+    spinner.stop();
     switch (update.type) {
-      case 'thought':
-        logger.info(`[THOUGHT] ${update.content}`);
-        spinner.start('🤔 AI is thinking...');
-        break;
-      case 'action':
-        logger.info(`[ACTION] ${update.content}`);
-        spinner.start(`[${update.content}] Executing...`);
-        break;
-      case 'observation':
-        logger.info(`[OBSERVATION]\n${update.content}`);
-        break;
-      case 'finish':
-        logger.info(`✅ [FINISH] ${update.content}`);
-        break;
-      case 'error':
-        logger.error(`❌ [ERROR] ${update.content}`);
-        break;
+      case 'thought': logger.info(`[THOUGHT] ${update.content}`); spinner.start('🤔 AI is thinking...'); break;
+      case 'action': logger.info(`[ACTION] ${update.content}`); spinner.start(`[${update.content}] Executing...`); break;
+      case 'observation': logger.info(`[OBSERVATION]\n${update.content}`); break;
+      case 'finish': logger.info(`✅ [FINISH] ${update.content}`); break;
+      case 'error': logger.error(`❌ [ERROR] ${update.content}`); break;
     }
   };
 
   const onPrompt = async (question: string): Promise<string> => {
-      spinner.stop(); // Pause spinner for user input
-      const { answer } = await inquirer.prompt([{
-          type: 'input',
-          name: 'answer',
-          message: question,
-      }]);
-      spinner.start('🤔 AI is thinking...'); // Resume spinner
+      spinner.stop();
+      const { answer } = await inquirer.prompt([{ type: 'input', name: 'answer', message: question }]);
+      spinner.start('🤔 AI is thinking...');
       return answer;
   };
 

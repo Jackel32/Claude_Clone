@@ -13,7 +13,6 @@
     "types": [
       "node",
       "yargs",
-      "cli-progress"
     ]
   },
   "include": ["src/**/*", "src/types/**/*.d.ts"],

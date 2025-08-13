@@ -1,29 +1,14 @@
-/**
- * @file Functions for gathering and formatting context for the AI.
- */
-
-import { readFile } from '../fileops/reader.js';
+import { promises as fs } from 'fs';
 import { AgentCallback } from '../core/agent-core.js';
-import * as path from 'path';
 
-/**
- * Reads multiple files and formats their contents into a single string
- * using XML-like tags for clear separation.
- *
- * @param filePaths - An array of file paths to read.
- * @param onUpdate - A callback to report progress updates.
- * @returns A promise that resolves to a single string containing all file
- * contents, formatted for the AI prompt.
- */
 export async function gatherFileContext(filePaths: string[], onUpdate: AgentCallback, totalFiles: number): Promise<string> {
   let contextString = '';
 
   for (let i = 0; i < filePaths.length; i++) {
     const filePath = filePaths[i];
-    // Send an action update with the progress, now using the full relative path.
     onUpdate({ type: 'action', content: `Reading ${i + 1}/${totalFiles}: ${filePath}` });
     try {
-      const content = await readFile(filePath);
+      const content = await fs.readFile(filePath, 'utf-8');
       contextString += `<file path="${filePath}">\n${content}\n</file>\n\n`;
     } catch (error) {
       contextString += `<file path="${filePath}">\n--- Error reading file ---\n</file>\n\n`;

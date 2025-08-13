@@ -10,7 +10,7 @@ import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
 import { getSymbolContent, listSymbolsInFile, queryVectorIndex, scanProject } from '../codebase/index.js';
-import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
+// import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
 import { ALL_TOOLS, TASK_LIBRARY } from '../ai/index.js';
 
 const execAsync = promisify(exec);
@@ -142,17 +142,17 @@ export async function runAgent(
             observation = `Content of symbol "${action.symbolName}" from "${action.path}":\n${content}`;
             break;
 
-          case 'getRecentCommits':
-            const commits = await getRecentCommits(context.args.path || '.');
-            observation = `Recent commits:\n${commits.join('\n')}`;
-            break;
+          // case 'getRecentCommits':
+          //   const commits = await getRecentCommits(context.args.path || '.');
+          //   observation = `Recent commits:\n${commits.join('\n')}`;
+          //   break;
             
-          case 'getGitDiff':
-            if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
-              throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
-            }
-            observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
-            break;
+          // case 'getGitDiff':
+          //   if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
+          //     throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
+          //   }
+          //   observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
+          //   break;
           
           case 'queryVectorIndex':
             if (typeof action.query !== 'string') {

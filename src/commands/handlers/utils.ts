@@ -7,7 +7,6 @@ import { promises as fs } from 'fs';
 import * as diff from 'diff';
 import { AppContext } from '../../types.js';
 import { scanProject } from '../../codebase/index.js';
-import inquirer from 'inquirer';
 
 /**
  * Extracts code from a markdown block (e.g., ```typescript\n...\n```).
@@ -29,6 +28,8 @@ export function extractCode(rawResponse: string): string {
  */
 export async function confirmAndApplyChanges(filePath: string, originalContent: string, newContent: string, context: AppContext): Promise<void> {
   const { logger } = context;
+  const inquirer = (await import('inquirer')).default;
+
   logger.info('\n--- Proposed Changes ---');
   const changes = diff.createPatch(filePath, originalContent, newContent, '', '');
   changes.split('\n').forEach((line: string) => {
@@ -58,6 +59,8 @@ export async function confirmAndApplyChanges(filePath: string, originalContent: 
  */
 export async function promptForFile(message: string, context: AppContext): Promise<string | null> {
   const { logger } = context;
+  const inquirer = (await import('inquirer')).default;
+
   logger.info('🔍 Scanning for project files (respecting .gitignore)...');
   const files = await scanProject('.');
   files.unshift('.. (Back to Main Menu)');

@@ -1,40 +1,36 @@
 # ---- Stage 1: Build the application ----
 FROM node:20-alpine AS builder
 
-# Install build tools needed for native dependencies
+# Install build tools and git, which is a runtime dependency
 RUN apk add --no-cache python3 make g++ git
 
 WORKDIR /app
 
-# Copy package files and .npmrc
+# Copy package files
 COPY package*.json .npmrc ./
-# This install will use legacy-peer-deps to resolve conflicts
-RUN npm install
+# Install dependencies
+RUN npm install --legacy-peer-deps
 
-# Copy the rest of your app's source code
+# Copy the rest of the app's source code
 COPY . .
 
+# Build the TypeScript code into JavaScript
 RUN npm run build
 
-
-# ---- Stage 2: Create the final production image ----
+# ---- Stage 2: Create the final, lean image ----
 FROM node:20-alpine AS production
 
 ENV NODE_ENV=production
 
-# Install git, which is a runtime dependency for the git diff feature
-RUN apk update && apk add git
+# Install git, which is a runtime dependency for some agent tasks
+RUN apk update && apk add --no-cache git
 
 WORKDIR /app
 
-# Copy necessary artifacts from the builder stage
+# Copy only the necessary artifacts from the builder stage
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
 
-# Expose the port the server will run on
-EXPOSE 3000
-
-# The command to start the webserver
-CMD ["node", "dist/server.js"]
+# The command to start the interactive CLI menu
+CMD ["node", "dist/index.js"]
