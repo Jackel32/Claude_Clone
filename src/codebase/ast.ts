@@ -11,7 +11,7 @@ import { createRequire } from 'module';
 import { logger } from '../logger/index.js';
 const require = createRequire(import.meta.url);
 
-const TypeScript = require('tree-sitter-typescript/bindings/node');
+const ts = require('tree-sitter-typescript/bindings/node');
 const Python = require('tree-sitter-python/bindings/node');
 const CSharp = require('tree-sitter-c-sharp/bindings/node');
 const C = require('tree-sitter-c/bindings/node');
@@ -29,14 +29,16 @@ export async function initializeParser(): Promise<void> {
     if (isParserInitialized) return;
     logger.info('Initializing Tree-sitter parsers...');
 
-    languageConfig['.ts'] = {
-        language: TypeScript,
-        symbolQuery: `
-          [(function_declaration name: (identifier) @symbol.name) @symbol.node]
-          [(lexical_declaration (variable_declarator name: (identifier) @symbol.name value: [(arrow_function) (function)])) @symbol.node]
-          [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]
-          [(interface_declaration name: (type_identifier) @symbol.name) @symbol.node]`
-    };
+    const jsTsQuery = `
+      [(function_declaration name: (identifier) @symbol.name) @symbol.node]
+      [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]
+      [(method_definition name: (property_identifier) @symbol.name) @symbol.node]
+    `;
+
+    languageConfig['.ts'] = { language: ts.typescript, symbolQuery: jsTsQuery };
+    languageConfig['.tsx'] = { language: ts.tsx, symbolQuery: jsTsQuery };
+    languageConfig['.js'] = { language: ts.typescript, symbolQuery: jsTsQuery };
+
     languageConfig['.py'] = {
         language: Python,
         symbolQuery: `
@@ -71,30 +73,30 @@ export async function initializeParser(): Promise<void> {
     };
 
     const extensionAliases: Record<string, string[]> = {
-        '.ts': ['.tsx', '.js', '.jsx', '.mjs', '.cjs'],
+        '.js': ['.mjs', '.cjs'],
+        '.tsx': ['.jsx'],
         '.py': ['.pyi', '.pyx', '.pyd', '.pyw'],
         '.cpp': ['.h', '.hpp', '.hxx', '.cxx', '.cc', '.cppm', '.c++', '.h++', '.idl'],
         '.cs': ['.csx'],
         '.ada': ['.ads', '.adb']
     };
 
-    // Populate the languageConfig with aliases
     for (const primaryExt in extensionAliases) {
-        const aliases = extensionAliases[primaryExt];
-        for (const alias of aliases) {
-            languageConfig[alias] = languageConfig[primaryExt];
+        if (languageConfig[primaryExt]) {
+            const aliases = extensionAliases[primaryExt];
+            for (const alias of aliases) {
+                languageConfig[alias] = languageConfig[primaryExt];
+            }
         }
     }
 
     isParserInitialized = true;
-    logger.info('Tree-sitter parsers initialized for all supported languages.');
+    logger.info('Tree-sitter parsers initialized.');
 }
 
 async function getLanguageConfig(filePath: string) {
-    if (!isParserInitialized) {
-        await initializeParser();
-    }
-    const extension = path.extname(filePath);
+    if (!isParserInitialized) await initializeParser();
+    const extension = path.extname(filePath).toLowerCase();
     return languageConfig[extension];
 }
 
@@ -105,19 +107,31 @@ async function getLanguageConfig(filePath: string) {
  */
 export async function listSymbolsInFile(filePath: string): Promise<string[]> {
     const config = await getLanguageConfig(filePath);
-    if (!config) return [];
+    if (!config || !config.language) {
+      logger.warn(`No language configuration for "${path.basename(filePath)}", skipping symbol analysis.`);
+      return [];
+    }
     
-    parser.setLanguage(config.language);
+    try {
+        parser.setLanguage(config.language);
+    } catch (e) {
+        logger.error(e, `Failed to set language for ${filePath}. The grammar may be incompatible.`);
+        return [];
+    }
+    
     const sourceCode = await fs.readFile(filePath, 'utf8');
     const tree = parser.parse(sourceCode);
-    if (!tree) return [];
     
-    const query = new Parser.Query(config.language, config.symbolQuery);
-    const matches = query.captures(tree.rootNode);
-    
-    return matches
-        .filter((m: any) => m.name === 'symbol.name')
-        .map((m: any) => m.node.text);
+    try {
+      const query = new Parser.Query(config.language, config.symbolQuery);
+      const matches = query.captures(tree.rootNode);
+      return matches
+          .filter((m: any) => m.name === 'symbol.name')
+          .map((m: any) => m.node.text);
+    } catch (e) {
+      logger.error(e, `Failed to query symbols in ${filePath}`);
+      return [];
+    }
 }
 
 /**
@@ -133,21 +147,23 @@ export async function getSymbolContent(filePath: string, symbolName: string): Pr
     parser.setLanguage(config.language);
     const sourceCode = await fs.readFile(filePath, 'utf8');
     const tree = parser.parse(sourceCode);
-    if (!tree) return null;
 
-    const query = new Parser.Query(config.language, config.symbolQuery);
-    const matches = query.captures(tree.rootNode);
+    try {
+      const query = new Parser.Query(config.language, config.symbolQuery);
+      const matches = query.captures(tree.rootNode);
 
-    for (let i = 0; i < matches.length; i++) {
-        const match = matches[i];
-        if (match.name === 'symbol.name' && match.node.text === symbolName) {
-            const nodeMatch = matches.find(m => 
-                m.name === 'symbol.node' && 
-                m.node.startIndex >= match.node.startIndex && 
-                m.node.endIndex >= match.node.endIndex
-            );
-            if (nodeMatch) return nodeMatch.node.text;
-        }
+      for (const match of matches) {
+          if (match.name === 'symbol.name' && match.node.text === symbolName) {
+              const nodeMatch = matches.find(m => 
+                  m.name === 'symbol.node' && 
+                  m.node.startIndex <= match.node.startIndex && 
+                  m.node.endIndex >= match.node.endIndex
+              );
+              if (nodeMatch) return nodeMatch.node.text;
+          }
+      }
+    } catch (e) {
+      logger.error(e, `Failed to get content for symbol "${symbolName}" in ${filePath}`);
     }
     return null;
 }

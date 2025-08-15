@@ -8,6 +8,12 @@ export function parseArgs() {
         describe: 'The path to the codebase directory',
         type: 'string',
         default: '.',
+      })
+      .option('force', {
+        alias: 'f',
+        type: 'boolean',
+        description: 'Force a full re-index of the entire codebase, ignoring the cache.',
+        default: false,
       });
     })
     .command('report', 'Generates a high-level analysis report for the entire project')

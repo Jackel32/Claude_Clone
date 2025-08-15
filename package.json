@@ -12,6 +12,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "cli": "node dist/cli.js",
+    "index": "node dist/cli.js index",
     "dev": "ts-node src/app.ts",
     "test": "vitest --run --threads=false --setup-files tests/setup.ts",
     "lint": "eslint . --ext .ts",

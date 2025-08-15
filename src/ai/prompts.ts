@@ -162,11 +162,12 @@ export const ALL_TOOLS = {
     listFiles: 'Lists all files in the current project. Args: none.',
     listSymbols: 'Lists all functions and classes in a file. Args: "path".',
     readSymbol: 'Reads the content of a specific function or class. Args: "path", "symbolName".',
-    getGitDiff: 'Gets the diff between two commits. Args: "startCommit", "endCommit".',
-    getRecentCommits: 'Gets a list of recent commits. Args: none.',
+    // getGitDiff: 'Gets the diff between two commits. Args: "startCommit", "endCommit".',
+    // getRecentCommits: 'Gets a list of recent commits. Args: none.',
     askUser: 'Asks the user a question and gets their response. Args: "question".',
     createPlan: 'Creates a step-by-step plan for a high-level goal. Args: "goal".',
     queryVectorIndex: 'Queries the vectorized codebase with a natural language question to find relevant code snippets. Use this first to get context before reading or writing files. Args: "query".',
+    runIndex: 'Runs the codebase indexer to make sure the vector database is up-to-date. This is required before using `queryVectorIndex`. Args: none.',
     finish: 'Call this when the task is complete. Args: "summary".',
 };
 

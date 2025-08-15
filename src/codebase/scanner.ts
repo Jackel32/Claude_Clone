@@ -1,3 +1,8 @@
+/**
+ * @file src/codebase/scanner.ts
+ * @description Scans a project directory for relevant files, respecting .gitignore and .kinchignore.
+ */
+
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
@@ -6,14 +11,26 @@ const ignore = require('ignore');
 
 export async function scanProject(projectRoot: string): Promise<string[]> {
   const ig = ignore();
-  ig.add(['.git', 'node_modules', '.kinchignore']);
+  
+  // Add default ignore patterns
+  ig.add(['.git', 'node_modules', '.kinchignore', 'dist', 'tests/fixtures']);
 
+  // --- Read .gitignore ---
+  const gitignorePath = path.join(projectRoot, '.gitignore');
+  try {
+    const gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
+    ig.add(gitignoreContent);
+  } catch (error) {
+    // .gitignore not found, which is fine.
+  }
+
+  // --- Read .kinchignore ---
   const kinchignorePath = path.join(projectRoot, '.kinchignore');
   try {
     const kinchignoreContent = await fs.readFile(kinchignorePath, 'utf-8');
     ig.add(kinchignoreContent);
   } catch (error) {
-    // .kinchignore not found, which is also fine.
+    // .kinchignore not found, which is fine.
   }
 
   const files: string[] = [];

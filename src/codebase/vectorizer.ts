@@ -1,6 +1,6 @@
 /**
  * @file src/codebase/vectorizer.ts
- * @description Handles creating, managing, and querying the project-specific vector database.
+ * @description Handles creating, managing, and querying the project-specific vector database using AST-based semantic chunking.
  */
 
 import * as path from 'path';
@@ -9,11 +9,13 @@ import { AgentCallback } from '../core/agent-core.js';
 import { AIProvider } from '../ai/providers/interface.js';
 import { VectorIndexError } from '../errors/index.js';
 import { getProjectCacheDir } from './cache-manager.js';
+import { listSymbolsInFile, getSymbolContent } from './ast.js';
+import { logger } from '../logger/index.js';
 
-// Manages singleton LocalIndex instances per project root to avoid redundant initializations.
+// Manages singleton LocalIndex instances per project root.
 const indexInstances: Map<string, LocalIndex> = new Map();
-// Caches the "created" state of an index to avoid repeated disk checks.
-const createdIndexState: Map<string, boolean> = new Map();
+// Caches the "created" state of an index.
+//const createdIndexState: Map<string, boolean> = new Map();
 
 /**
  * Explicitly sets the in-memory cache for the index's "created" state.
@@ -22,25 +24,35 @@ const createdIndexState: Map<string, boolean> = new Map();
  * @param {boolean} state - The state to set (true for created, false for not created).
  */
 export function setIndexCreatedState(projectRoot: string, state: boolean): void {
-    createdIndexState.set(projectRoot, state);
+    //createdIndexState.set(projectRoot, state);
 }
 
 /**
- * Splits a string of text or code into manageable, overlapping chunks suitable for embedding.
- * This ensures that semantic context is not lost at chunk boundaries.
+ * Splits code into semantically meaningful chunks using the Abstract Syntax Tree (AST).
+ * Each chunk will be a complete function, class, or other top-level symbol.
+ * @param {string} filePath - The absolute path to the file being chunked.
  * @param {string} content - The file content to be chunked.
- * @returns {string[]} An array of text chunks.
+ * @returns {Promise<string[]>} An array of semantically complete code chunks.
  */
-function chunkText(content: string): string[] {
+async function chunkText(filePath: string, content: string): Promise<string[]> {
   const chunks: string[] = [];
-  const lines = content.split('\n');
-  const chunkSize = 50; // The number of lines per chunk.
-  const overlap = 10;   // The number of lines to overlap between chunks.
+  // Get all top-level symbols (functions, classes, etc.) from the file.
+  const symbols = await listSymbolsInFile(filePath);
 
-  for (let i = 0; i < lines.length; i += (chunkSize - overlap)) {
-    const chunk = lines.slice(i, i + chunkSize).join('\n');
-    chunks.push(chunk);
+  for (const symbolName of symbols) {
+    // Get the full source code for that symbol.
+    const symbolContent = await getSymbolContent(filePath, symbolName);
+    if (symbolContent) {
+      chunks.push(symbolContent);
+    }
   }
+  
+  // If no symbols were found (e.g., a simple script or markdown file),
+  // fall back to treating the whole file as a single chunk.
+  if (chunks.length === 0 && content.trim()) {
+      chunks.push(content);
+  }
+
   return chunks;
 }
 
@@ -51,28 +63,17 @@ function chunkText(content: string): string[] {
  * @returns {Promise<LocalIndex>} A promise that resolves to the LocalIndex instance.
  */
 export async function getVectorIndex(projectRoot: string): Promise<LocalIndex> {
+    logger.trace({ projectRoot }, 'getVectorIndex: Function called.');
     if (indexInstances.has(projectRoot)) {
+        logger.trace({ projectRoot }, 'getVectorIndex: Returning cached instance.');
         return indexInstances.get(projectRoot)!;
     }
+
+    logger.trace({ projectRoot }, 'getVectorIndex: Creating new LocalIndex instance.');
     const projectCacheDir = await getProjectCacheDir(projectRoot);
     const indexPath = path.join(projectCacheDir, 'vector_index');
     
     const newIndex = new LocalIndex(indexPath);
-    
-    // Wrap the createIndex method to update our in-memory state cache.
-    const originalCreateIndex = newIndex.createIndex.bind(newIndex);
-    newIndex.createIndex = async (): Promise<void> => {
-        await originalCreateIndex();
-        setIndexCreatedState(projectRoot, true);
-    };
-
-    // Wrap the deleteIndex method to update our in-memory state cache.
-    const originalDeleteIndex = newIndex.deleteIndex.bind(newIndex);
-    newIndex.deleteIndex = async (): Promise<void> => {
-        await originalDeleteIndex();
-        setIndexCreatedState(projectRoot, false);
-    };
-
     indexInstances.set(projectRoot, newIndex);
     return newIndex;
 }
@@ -92,23 +93,38 @@ export async function updateVectorIndex(
     client: AIProvider,
     onUpdate: AgentCallback
 ): Promise<void> {
+    logger.trace({ filePath, projectRoot }, 'updateVectorIndex: Starting update for file.');
+    
     const vectorIndex = await getVectorIndex(projectRoot);
-    if (!(await isIndexCreated(projectRoot))) {
+    
+    logger.trace({ projectRoot }, 'updateVectorIndex: Checking if index is created...');
+    const indexExists = await vectorIndex.isIndexCreated();
+    logger.trace({ projectRoot, indexExists }, 'updateVectorIndex: Index created status.');
+
+    if (!indexExists) {
+        logger.trace({ projectRoot }, 'updateVectorIndex: Index not found. Creating index...');
         await vectorIndex.createIndex();
+        logger.trace({ projectRoot }, 'updateVectorIndex: Index creation complete.');
     }
     
-    const chunks = chunkText(content);
+    const chunks = await chunkText(filePath, content);
+    logger.trace({ filePath, chunkCount: chunks.length }, 'updateVectorIndex: Text chunking complete.');
+
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         if (!chunk.trim()) continue;
 
         onUpdate({ type: 'action', content: `chunk ${i + 1}/${chunks.length}...` });
-
+        logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Embedding chunk...');
+        
         const vector = await client.embed(chunk, projectRoot);
+        
+        logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Upserting item into index...');
         await vectorIndex.upsertItem({
             vector,
             metadata: { filePath, chunk: i + 1, content: chunk },
         });
+        logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Upsert complete.');
     }
 }
 
@@ -118,15 +134,8 @@ export async function updateVectorIndex(
  * @returns {Promise<boolean>} A promise that resolves to true if the index exists.
  */
 export async function isIndexCreated(projectRoot: string): Promise<boolean> {
-    if (createdIndexState.has(projectRoot)) {
-        return createdIndexState.get(projectRoot)!;
-    }
-
-    // If not in cache, check the disk once and store the result for subsequent calls.
     const vectorIndex = await getVectorIndex(projectRoot);
-    const onDisk = await vectorIndex.isIndexCreated();
-    setIndexCreatedState(projectRoot, onDisk);
-    return onDisk;
+    return await vectorIndex.isIndexCreated();
 }
 
 /**
@@ -156,11 +165,9 @@ export async function queryVectorIndexRaw(projectRoot: string, query: string, cl
  */
 export async function queryVectorIndex(projectRoot: string, query: string, client: AIProvider, topK: number): Promise<string> {
     const results = await queryVectorIndexRaw(projectRoot, query, client, topK);
-
     if (results.length === 0) {
         return 'No relevant code context found in the vector database.';
     }
-
     return results
         .map((r) => `--- From ${r.item.metadata.filePath} ---\n${r.item.metadata.content}`)
         .join('\n\n');

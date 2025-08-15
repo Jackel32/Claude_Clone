@@ -10,7 +10,7 @@ import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
 import { getSymbolContent, listSymbolsInFile, queryVectorIndex, scanProject } from '../codebase/index.js';
-// import { getRecentCommits, getDiffBetweenCommits } from '../fileops/index.js';
+import { runIndex } from './index-core.js';
 import { ALL_TOOLS, TASK_LIBRARY } from '../ai/index.js';
 
 const execAsync = promisify(exec);
@@ -111,6 +111,11 @@ export async function runAgent(
             observation = `Command output:\n${stdout}`;
             break;
 
+          case 'runIndex':
+            await runIndex(context, onUpdate);
+            observation = 'Successfully indexed the codebase.';
+            break;
+
           case 'readFile':
             if (typeof action.path !== 'string') {
                 throw new Error("Action 'readFile' is missing 'path'.");
@@ -158,9 +163,21 @@ export async function runAgent(
             if (typeof action.query !== 'string') {
               throw new Error("Action 'queryVectorIndex' is missing a 'query'.");
             }
-            const topK = profile.rag?.topK || 5; // Use a slightly larger topK for the agent
-            const contextString = await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
-            observation = `Vector index query for "${action.query}" returned the following context:\n${contextString}`;
+            const topK = profile.rag?.topK || 5;
+            try {
+                // First attempt to query
+                observation = await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
+            } catch (e) {
+                // If it fails because the index is missing, run the indexer and retry
+                if (e instanceof Error && e.message.includes('Vector index not found')) {
+                    onUpdate({ type: 'thought', content: 'Vector index not found. Running indexer automatically before retrying query...' });
+                    await runIndex(context, onUpdate);
+                    observation = `Successfully indexed the codebase. Retrying query: "${action.query}"...\n\n` + await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
+                } else {
+                    // Re-throw any other errors
+                    throw e;
+                }
+            }
             break;
 
           case 'askUser':
