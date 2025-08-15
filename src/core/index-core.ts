@@ -20,36 +20,35 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
   const { logger, aiProvider, args, profile } = context;
   const projectRoot = path.resolve(args.path || profile.cwd || '.');
   const indexer = await getIndexer(projectRoot);
-  const { force } = args; // Get the new force flag
 
   try {
+    const vectorIndex = await getVectorIndex(projectRoot);
+    if (!(await vectorIndex.isIndexCreated())) {
+        onUpdate({ type: 'thought', content: 'Vector index not found. Creating new vector index...' });
+        await vectorIndex.createIndex();
+        setIndexCreatedState(projectRoot, true);
+    }
+
     onUpdate({ type: 'thought', content: `Scanning project at ${projectRoot}...` });
     const allFiles = await scanProject(projectRoot);
     const currentFiles = allFiles.filter(file => VALID_EXTENSIONS.has(path.extname(file).toLowerCase()));
     onUpdate({ type: 'thought', content: `Found ${currentFiles.length} relevant files.` });
-    
+
+    // --- Efficiently Handle Deleted Files ---
+    const cachedFiles = Object.keys(indexer.getCache());
+    const deletedFiles = cachedFiles.filter(file => !currentFiles.includes(file));
     let filesToIndex: string[] = [];
 
-    if (force) {
-      onUpdate({ type: 'thought', content: 'Force flag detected. A full re-index will be performed.' });
+    if (deletedFiles.length > 0) {
+      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. A full re-index is required.` });
+      indexer.removeEntries(deletedFiles);
       const vectorIndex = await getVectorIndex(projectRoot);
       if (await vectorIndex.isIndexCreated()) {
-          onUpdate({ type: 'thought', content: 'Deleting existing vector index...' });
-          await vectorIndex.deleteIndex();
+        await vectorIndex.deleteIndex();
       }
-      // Clear the analysis cache as well to ensure everything is re-processed
-      indexer.removeEntries(Object.keys(indexer.getCache()));
-      filesToIndex = [...currentFiles]; // Mark all files for re-indexing
+      filesToIndex = [...currentFiles]; // Re-index everything
     } else {
-      // --- Standard incremental indexing logic ---
-      const cachedFiles = Object.keys(indexer.getCache());
-      const deletedFiles = cachedFiles.filter(file => !currentFiles.includes(file));
-
-      if (deletedFiles.length > 0) {
-        onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing from cache.` });
-        indexer.removeEntries(deletedFiles);
-      }
-
+      // --- Efficiently Find New and Modified Files ---
       onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
       for (const file of currentFiles) {
         if (await indexer.isEntryStale(file)) {
@@ -57,45 +56,49 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
         }
       }
     }
-    
+
     if (filesToIndex.length === 0) {
       onUpdate({ type: 'finish', content: 'Codebase is already up-to-date.' });
-      await indexer.saveCache();
+      await indexer.saveCache(); // Save potential deletions even if no new files
       return;
     }
 
-    onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} files...` });
-    
-    const vectorIndex = await getVectorIndex(projectRoot);
-    if (!(await vectorIndex.isIndexCreated())) {
-        onUpdate({ type: 'thought', content: 'Creating new vector index...' });
-        await vectorIndex.createIndex();
-        setIndexCreatedState(projectRoot, true);
-    }
+    // --- Process Only the Files That Changed ---
+    onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} new or modified files...` });
 
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });
-    
+
+    const failedFiles: string[] = [];
+
     for (let i = 0; i < filesToIndex.length; i++) {
       const file = filesToIndex[i];
       onUpdate({ type: 'thought', content: `Processing ${path.basename(file)} (${i + 1}/${filesToIndex.length})` });
       try {
         const stats = await fs.stat(file);
         if (stats.size > MAX_FILE_SIZE_BYTES) {
-          logger.warn(`Skipping large file: ${file}`);
+          logger.warn(`Skipping large file: ${file} (${(stats.size / 1024).toFixed(2)} KB)`);
           continue;
         }
 
         const content = await fs.readFile(file, 'utf-8');
         await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
-        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString() });
-        onUpdate({ type: 'action', content: 'file-processed' }); 
+        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString() }); // Updates IN-MEMORY cache
+        onUpdate({ type: 'action', content: 'file-processed' });
       } catch (error) {
-        onUpdate({ type: 'error', content: `Could not process file ${file}: ${(error as Error).message}` });
+        const errorMessage = `Could not process file ${file}: ${(error as Error).message}`;
+        onUpdate({ type: 'error', content: errorMessage });
+        failedFiles.push(file);
       }
     }
-    
+
+    if (failedFiles.length > 0) {
+        onUpdate({ type: 'thought', content: `\nFailed to process ${failedFiles.length} files:\n- ${failedFiles.join('\n- ')}` });
+    }
+
+    // --- Save Everything Once at the End ---
     await indexer.saveCache();
-    onUpdate({ type: 'finish', content: 'Indexing complete.' });
+    onUpdate({ type: 'finish', content: 'Indexing complete. You can now chat with the codebase.' });
+    logger.info('runIndex: Indexing finished.');
   } catch (error) {
     onUpdate({ type: 'error', content: (error as Error).message });
   }

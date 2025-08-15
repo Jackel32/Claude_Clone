@@ -97,6 +97,7 @@ export async function getProfile(profileName?: string): Promise<Profile> {
  */
 export async function createAppContext(args: any = {}): Promise<AppContext> {
     const profile = await getProfile(args.profile);
+    profile.cwd = path.resolve(profile.cwd || '.'); 
     const activeProviderName = profile.provider?.toLowerCase() || 'gemini';
     const providerConfig = profile.providers?.[activeProviderName];
 

@@ -3,6 +3,7 @@
  * @description Core ReAct agent logic, decoupled from any UI.
  */
 
+import * as path from 'path'; 
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -31,7 +32,8 @@ export async function runAgent(
     taskTemplateId?: string
 ) {  
   const { logger, aiProvider, profile } = context;
-  const files = await scanProject(context.args.path || '.');
+  const projectRoot = path.resolve(context.args.path || '.');
+  const files = await scanProject(projectRoot);
   let initialContext = `Files in the project:\n${files.join('\n')}`;
 
   if (taskTemplateId === 'analyze-task-tools') {
@@ -124,7 +126,7 @@ export async function runAgent(
             break;
 
           case 'listFiles':
-            const files = await scanProject(context.args.path || '.');
+            const files = await scanProject(projectRoot);
             observation = `The following files were found in the project:\n${files.join('\n')}`;
             break;
 
@@ -166,7 +168,7 @@ export async function runAgent(
             const topK = profile.rag?.topK || 5;
             try {
                 // First attempt to query
-                observation = await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
+                observation = await queryVectorIndex(projectRoot, action.query, aiProvider, topK);
             } catch (e) {
                 // If it fails because the index is missing, run the indexer and retry
                 if (e instanceof Error && e.message.includes('Vector index not found')) {
