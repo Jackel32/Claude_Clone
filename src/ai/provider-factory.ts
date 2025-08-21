@@ -1,6 +1,7 @@
-import { Profile } from '../config/schema.js';
+import { McpConfig, Profile } from '../config/schema.js';
 import { AIProvider } from './providers/interface.js';
 import { GeminiProvider } from './providers/gemini.js';
+import { McpProvider } from './providers/mcp.js';
 import { Logger } from '../types.js';
 
 export function createAIProvider(profile: Profile, apiKey: string, logger: Logger): AIProvider {
@@ -22,6 +23,8 @@ export function createAIProvider(profile: Profile, apiKey: string, logger: Logge
   switch (activeProviderName) {
     case 'gemini':
       return new GeminiProvider(apiKey, generationModel, embeddingModel, temperature, logger);
+    case 'mcp':
+      return new McpProvider(apiKey, providerConfig as McpConfig, logger);
     default:
       throw new Error(`Unsupported AI provider: "${provider}"`);
   }
