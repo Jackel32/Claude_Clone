@@ -15,12 +15,19 @@ export interface ProviderConfig {
   };
 }
 
+export interface McpConfig extends ProviderConfig {
+  server: {
+    command: string;
+    args: string[];
+  };
+}
+
 /**
  * Represents the settings for a single AI profile.
  */
 export interface Profile {
   /** The provider for the AI model. */
-  provider?: string;
+  provider?: 'gemini' | 'mcp';
   /** The models used by the AI provider. */
   providers?: {
     [providerName: string]: ProviderConfig;
