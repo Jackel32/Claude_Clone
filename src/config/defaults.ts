@@ -37,6 +37,20 @@ export const defaultConfig: Config = {
             requestsPerDay: 1000,
           },
         },
+        mcp: {
+          apiKey: 'YOUR_MCP_API_KEY_HERE',
+          generation: 'mcp-generation-model',
+          embedding: 'mcp-embedding-model',
+          rateLimit: {
+            requestsPerMinute: 15,
+            tokensPerMinute: 250000,
+            requestsPerDay: 1000,
+          },
+          server: {
+            command: 'node',
+            args: ['mcp-server.js'],
+          },
+        } as any,
       },
       temperature: 0.7,
       cwd: '.',
