@@ -18,7 +18,7 @@ const C = require('tree-sitter-c/bindings/node');
 const Cpp = require('tree-sitter-cpp/bindings/node'); 
 
 const parser = new Parser();
-const languageConfig: Record<string, { language: any, symbolQuery: string }> = {};
+const languageConfig: Record<string, { language: any, symbolQuery: string, importQuery?: string }> = {};
 let isParserInitialized = false;
 
 /**
@@ -29,15 +29,19 @@ export async function initializeParser(): Promise<void> {
     if (isParserInitialized) return;
     logger.info('Initializing Tree-sitter parsers...');
 
-    const jsTsQuery = `
+    const jsTsSymbolQuery = `
       [(function_declaration name: (identifier) @symbol.name) @symbol.node]
       [(class_declaration name: (type_identifier) @symbol.name) @symbol.node]
       [(method_definition name: (property_identifier) @symbol.name) @symbol.node]
     `;
+    const jsTsImportQuery = `
+      (import_statement source: (string_fragment) @import.path)
+      (import_require_clause source: (string_fragment) @import.path)
+    `;
 
-    languageConfig['.ts'] = { language: ts.typescript, symbolQuery: jsTsQuery };
-    languageConfig['.tsx'] = { language: ts.tsx, symbolQuery: jsTsQuery };
-    languageConfig['.js'] = { language: ts.typescript, symbolQuery: jsTsQuery };
+    languageConfig['.ts'] = { language: ts.typescript, symbolQuery: jsTsSymbolQuery, importQuery: jsTsImportQuery };
+    languageConfig['.tsx'] = { language: ts.tsx, symbolQuery: jsTsSymbolQuery, importQuery: jsTsImportQuery };
+    languageConfig['.js'] = { language: ts.typescript, symbolQuery: jsTsSymbolQuery, importQuery: jsTsImportQuery };
 
     languageConfig['.py'] = {
         language: Python,
@@ -98,6 +102,33 @@ async function getLanguageConfig(filePath: string) {
     if (!isParserInitialized) await initializeParser();
     const extension = path.extname(filePath).toLowerCase();
     return languageConfig[extension];
+}
+
+/**
+ * Lists all import paths in a given file.
+ * @param {string} filePath - The absolute path to the source file.
+ * @returns {Promise<string[]>} A list of raw import paths found in the file.
+ */
+export async function listImportsInFile(filePath: string): Promise<string[]> {
+    const config = await getLanguageConfig(filePath);
+    if (!config?.language || !config.importQuery) {
+        return [];
+    }
+    
+    try {
+        parser.setLanguage(config.language);
+        const sourceCode = await fs.readFile(filePath, 'utf8');
+        const tree = parser.parse(sourceCode);
+        const query = new Parser.Query(config.language, config.importQuery);
+        const matches = query.captures(tree.rootNode);
+        
+        return matches
+            .filter((m: any) => m.name === 'import.path')
+            .map((m: any) => m.node.text.replace(/['"`]/g, '')); // Remove quotes
+    } catch (e) {
+        logger.error(e, `Failed to query imports in ${filePath}`);
+        return [];
+    }
 }
 
 /**

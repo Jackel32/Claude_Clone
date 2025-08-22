@@ -75,8 +75,6 @@ Interactive Code Modification in Chat: Allow the AI in the chat command to not j
 
 Smarter Context for Chat: Augment the vector search context. When a user's query mentions a specific function or class (e.g., "explain the runIndex function"), use the AST to find that exact symbol and add its full source code to the prompt, in addition to the vector search results. This provides the AI with more precise, targeted information.
 
-Dependency-Aware Analysis: Enhance the AST analysis to map the dependency graph of the project (which files import which other files). This would allow the AI to answer more complex questions like, "If I change this function, what other parts of the application might be affected?"
-
 2. Adding New Commands & Capabilities
 Automated Documentation Generation (kinch-code docs): Create a new command that scans the entire project, uses the AI to summarize key modules and functions, and generates a comprehensive DOCUMENTATION.md file.
 
@@ -88,12 +86,5 @@ kinch-code git review: Have the AI analyze your staged git changes and provide a
 
 kinch-code git commit: Automatically generate a conventional commit message based on your staged changes.
 
-3. Improving User Experience
-Configuration Wizard (kinch-code setup): Instead of requiring users to manually edit a JSON file, create an interactive command that walks them through setting up their API keys, default models, and other preferences.
-
-Web UI Dashboard: While it's a CLI tool, you could add a command (kinch-code serve) that launches a simple local web application. This UI could provide a richer interface for viewing chat history, visualizing code analysis reports, or exploring the vector index results.
-
 4. Extensibility
 Plugin System for Custom Tasks: Allow users to define their own custom tasks in a local file (e.g., kinch-tasks.js). The application could dynamically load these tasks into the "Execute a Task" menu, making the tool highly extensible for different teams and workflows.
-
-IDE Extension (VS Code / JetBrains): The ultimate augmentation would be to package the core logic of your tool into an IDE extension. This would bring the chat, indexing, and task execution features directly into the developer's primary work environment.

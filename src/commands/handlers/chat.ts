@@ -12,6 +12,7 @@ import { getIndexer } from '../../codebase/indexer.js';
 import { handleIndexCommand } from './index-command.js';
 import { queryVectorIndexRaw } from '../../codebase/index.js';
 import { getHistory, saveHistory } from '../../core/db.js';
+import { DependencyGraph, loadDependencyGraph } from '../../codebase/dependencies.js';
 
 function createSessionId(projectRoot: string): string {
   return crypto.createHash('sha256').update(projectRoot).digest('hex');
@@ -23,14 +24,15 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
   const sessionId = createSessionId(projectRoot);
 
   let indexer = await getIndexer(projectRoot);
+  const depGraph: DependencyGraph | null = await loadDependencyGraph(projectRoot);
 
   // --- Indexing Check ---
-  while (!(await indexer.isIndexUpToDate())) {
+  while (!(await indexer.isIndexUpToDate()) || !depGraph) {
     const { default: inquirer } = await import('inquirer');
     const { shouldIndex } = await inquirer.prompt([{
         type: 'confirm',
         name: 'shouldIndex',
-        message: 'The codebase index is incomplete. Index now?',
+        message: 'The codebase index is incomplete or out of date. Index now?',
         default: true,
     }]);
     if (shouldIndex) {
@@ -69,10 +71,18 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
       try {
         const topK = profile.rag?.topK || 3;
         const vectorResults = await queryVectorIndexRaw(projectRoot, line, aiProvider, topK);
+        
         let contextStr = 'No relevant code context found.';
         if (vectorResults.length > 0) {
             contextStr = vectorResults
-                .map(r => `--- From ${r.item.metadata.filePath} ---\n${r.item.metadata.content}`)
+                .map(r => {
+                    const filePath = r.item.metadata.filePath as string;
+                    let dependencyInfo = '';
+                    if (depGraph && depGraph[filePath]?.importedBy.length > 0) {
+                        dependencyInfo = `\n(Imported by: ${depGraph[filePath].importedBy.map(f => path.basename(f)).join(', ')})`;
+                    }
+                    return `--- From ${filePath} ${dependencyInfo}---\n${r.item.metadata.content}`;
+                })
                 .join('\n\n');
         }
         

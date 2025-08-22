@@ -10,6 +10,7 @@ import { updateVectorIndex, getVectorIndex, setIndexCreatedState } from '../code
 import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
 import { logger } from '../logger/index.js';
+import { buildDependencyGraph, saveDependencyGraph } from '../codebase/dependencies.js';
 import { constructInitBatchPrompt, constructInitFinalPrompt,
          constructInitPrompt, gatherFileContext } from '../ai/index.js';
 
@@ -94,6 +95,12 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     if (failedFiles.length > 0) {
         onUpdate({ type: 'thought', content: `\nFailed to process ${failedFiles.length} files:\n- ${failedFiles.join('\n- ')}` });
     }
+
+    // --- Build and save the dependency graph ---
+    onUpdate({ type: 'thought', content: 'Building dependency graph...' });
+    const depGraph = await buildDependencyGraph(projectRoot);
+    await saveDependencyGraph(projectRoot, depGraph);
+    onUpdate({ type: 'thought', content: 'Dependency graph saved.' });
 
     // --- Save Everything Once at the End ---
     await indexer.saveCache();
