@@ -24,6 +24,6 @@ const transport = process.env.NODE_ENV !== 'production'
  * In development, it uses pino-pretty for human-readable output.
  */
 export const logger = pino({
-  level: process.env.LOG_LEVEL || 'trace',
+  level: process.env.LOG_LEVEL || 'info',
   transport: transport,
 });

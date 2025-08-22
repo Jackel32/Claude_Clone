@@ -122,7 +122,20 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
     }
 
     onUpdate({ type: 'thought', content: `Gathering context from ${files.length} relevant files...` });
-    const fileContext = await gatherFileContext(files, onUpdate, files.length);
+    
+    onUpdate({ type: 'action', content: `start-initialization|${files.length}` });
+    let fileContext = '';
+    for (const file of files) {
+        try {
+            const content = await fs.readFile(file, 'utf-8');
+            fileContext += `<file path="${file}">\n${content}\n</file>\n\n`;
+        } catch (error) {
+            fileContext += `<file path="${file}">\n--- Error reading file ---\n</file>\n\n`;
+        }
+        onUpdate({ type: 'action', content: 'file-processed' });
+    }
+    fileContext = fileContext.trim();
+    // --- END MODIFICATION ---
 
     // --- BATCHING LOGIC ---
     const CHAR_LIMIT = 100000; // Character limit per batch

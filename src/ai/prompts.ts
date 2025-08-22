@@ -108,7 +108,6 @@ export interface PlanStep {
  * @returns The formatted prompt string.
  */
 export function constructPlanPrompt(userTask: string, context: string): string {
-  // FIX: Added a detailed one-shot example to guide the AI's response format.
   return `You are an expert AI agent. Your goal is to achieve the user's task by creating a step-by-step plan.
 Analyze the user's request and the provided code context.
 Generate a plan as a JSON array of objects. Each object must have a "reasoning" property explaining the step and an "operation" property.

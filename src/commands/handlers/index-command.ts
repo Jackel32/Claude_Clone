@@ -2,8 +2,24 @@ import { AppContext } from '../../types.js';
 import { runIndex, runInit } from '../../core/index-core.js';
 import { AgentUpdate } from '../../core/agent-core.js';
 import { logger } from '../../logger/index.js';
+import { promises as fs } from 'fs';
+import * as path from 'path';
+import inquirer from 'inquirer';
 
 export async function handleIndexCommand(context: AppContext): Promise<void> {
+  const projectRoot = path.resolve(context.args.path || '.');
+
+  const { confirmation } = await inquirer.prompt([{
+      type: 'input',
+      name: 'confirmation',
+      message: `You are about to index the directory at "${projectRoot}".\n  This can be a long process. Type 'Yes' to proceed:`,
+  }]);
+
+  if (confirmation.toLowerCase() !== 'yes') {
+      logger.info('Indexing cancelled by user.');
+      return;
+  }
+
   const cliProgress = await import('cli-progress');
   const progressBar = new cliProgress.SingleBar({}, cliProgress.Presets.shades_classic);
   let totalFiles = 0;
@@ -28,7 +44,7 @@ export async function handleIndexCommand(context: AppContext): Promise<void> {
       case 'finish':
         progressBar.update(totalFiles);
         progressBar.stop();
-        logger.info(`\n✨ ${update.content}`);
+        logger.info(`\n ${update.content}`);
         break;
       case 'error':
         progressBar.stop();
@@ -65,7 +81,7 @@ export async function handleInitCommand(context: AppContext): Promise<void> {
       case 'finish':
         progressBar.update(totalFiles);
         progressBar.stop();
-        logger.info(`\n✨ ${update.content}`);
+        logger.info(`\n ${update.content}`);
         break;
       case 'error':
         progressBar.stop();
