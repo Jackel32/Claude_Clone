@@ -108,7 +108,16 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
                 if (filePath) {
                     const symbolContent = await getSymbolContent(filePath, symbol);
                     if (symbolContent) {
-                        directHitContext += `--- User specifically mentioned "${symbol}". Providing its direct source code ---\n`;
+                        directHitContext += `--- User specifically mentioned "${symbol}". Providing its direct source code and dependency information ---\n`;
+                        
+                        // Add Dependency Info
+                        if (depGraph && depGraph[filePath]) {
+                            const importedBy = depGraph[filePath].importedBy;
+                            if (importedBy.length > 0) {
+                                directHitContext += `(File: ${filePath})\n(Imported by: ${importedBy.map(f => path.basename(f)).join(', ')})\n\n`;
+                            }
+                        }
+
                         directHitContext += `<file path="${filePath}">\n${symbolContent}\n</file>\n\n`;
                     }
                 }
