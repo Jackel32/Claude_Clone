@@ -67,24 +67,3 @@ To run the included test suite:
 ```bash
 npm test
 ```
-
-
-TODO:
-1. Enhancing Core Functionality
-Interactive Code Modification in Chat: Allow the AI in the chat command to not just answer questions but also propose code changes. It could generate a diff of the proposed change, show it to you for approval, and then apply it to the file. This would make the chat feature much more powerful and action-oriented.
-
-Smarter Context for Chat: Augment the vector search context. When a user's query mentions a specific function or class (e.g., "explain the runIndex function"), use the AST to find that exact symbol and add its full source code to the prompt, in addition to the vector search results. This provides the AI with more precise, targeted information.
-
-2. Adding New Commands & Capabilities
-Automated Documentation Generation (kinch-code docs): Create a new command that scans the entire project, uses the AI to summarize key modules and functions, and generates a comprehensive DOCUMENTATION.md file.
-
-Automated Test Generation (kinch-code test): Build a command that can automatically write unit tests for a specified file or function. For example, kinch-code test src/utils.ts would create a src/utils.test.ts file with relevant test cases.
-
-Deeper Git Integration (kinch-code git ...):
-
-kinch-code git review: Have the AI analyze your staged git changes and provide a code review summary.
-
-kinch-code git commit: Automatically generate a conventional commit message based on your staged changes.
-
-4. Extensibility
-Plugin System for Custom Tasks: Allow users to define their own custom tasks in a local file (e.g., kinch-tasks.js). The application could dynamically load these tasks into the "Execute a Task" menu, making the tool highly extensible for different teams and workflows.

@@ -13,6 +13,7 @@ interface CacheEntry {
   analysis: {
     vectorizedAt?: string;
     symbols?: string[];
+    vectorIds?: string[];
   }; 
 }
 type AnalysisCache = Record<string, CacheEntry>;

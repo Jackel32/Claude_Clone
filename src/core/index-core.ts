@@ -6,7 +6,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { getIndexer } from '../codebase/indexer.js';
 import { scanProject } from '../codebase/scanner.js';
-import { updateVectorIndex, getVectorIndex, setIndexCreatedState } from '../codebase/vectorizer.js';
+import { updateVectorIndex, getVectorIndex, setIndexCreatedState, deleteVectorsByIds } from '../codebase/vectorizer.js';
 import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
 import { logger } from '../logger/index.js';
@@ -42,26 +42,28 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     let filesToIndex: string[] = [];
 
     if (deletedFiles.length > 0) {
-      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. A full re-index is required.` });
-      indexer.removeEntries(deletedFiles);
-      const vectorIndex = await getVectorIndex(projectRoot);
-      if (await vectorIndex.isIndexCreated()) {
-        await vectorIndex.deleteIndex();
-      }
-      filesToIndex = [...currentFiles]; // Re-index everything
-    } else {
-      // --- Efficiently Find New and Modified Files ---
-      onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
-      for (const file of currentFiles) {
-        if (await indexer.isEntryStale(file)) {
-          filesToIndex.push(file);
-        }
-      }
+      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing them from the index...` });
+      
+      const idsToDelete = deletedFiles.flatMap(file => {
+          const entry = indexer.getCache()[file];
+          return entry?.analysis?.vectorIds || [];
+      });
+
+      await deleteVectorsByIds(projectRoot, idsToDelete);
+      indexer.removeEntries(deletedFiles); // Remove from the JSON cache
     }
 
-    if (filesToIndex.length === 0) {
+    // --- Efficiently Find New and Modified Files ---
+    onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
+    for (const file of currentFiles) {
+        if (await indexer.isEntryStale(file)) {
+            filesToIndex.push(file);
+        }
+    }
+
+    if (filesToIndex.length === 0 && deletedFiles.length === 0) {
       onUpdate({ type: 'finish', content: 'Codebase is already up-to-date.' });
-      await indexer.saveCache(); // Save potential deletions even if no new files
+      await indexer.saveCache();
       return;
     }
 
@@ -83,8 +85,12 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
 
         const content = await fs.readFile(file, 'utf-8');
         const symbols = await listSymbolsInFile(file);
-        await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
-        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString(), symbols }); // Updates IN-MEMORY cache
+        const vectorIds = await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
+        await indexer.updateEntry(file, { 
+            vectorizedAt: new Date().toISOString(), 
+            symbols,
+            vectorIds
+        });
         onUpdate({ type: 'action', content: 'file-processed' });
       } catch (error) {
         const errorMessage = `Could not process file ${file}: ${(error as Error).message}`;
