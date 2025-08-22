@@ -8,11 +8,39 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { constructChatPrompt, processStream } from '../../ai/index.js';
 import { AppContext, ChatMessage } from '../../types.js';
-import { getIndexer } from '../../codebase/indexer.js';
+import { getIndexer, Indexer } from '../../codebase/indexer.js';
 import { handleIndexCommand } from './index-command.js';
-import { queryVectorIndexRaw } from '../../codebase/index.js';
+import { queryVectorIndexRaw, getSymbolContent } from '../../codebase/index.js';
 import { getHistory, saveHistory } from '../../core/db.js';
 import { DependencyGraph, loadDependencyGraph } from '../../codebase/dependencies.js';
+
+/**
+ * Extracts potential function or class names from a user's query.
+ * Looks for words in backticks or single/double quotes.
+ * @param query The user's input line.
+ * @returns An array of potential symbol names.
+ */
+function extractPotentialSymbols(query: string): string[] {
+    const symbolRegex = /[`'"](\w+)[`'"]/g;
+    const matches = query.matchAll(symbolRegex);
+    return Array.from(matches, m => m[1]);
+}
+
+/**
+ * Finds the file path for a given symbol using the indexer's cache.
+ * @param symbolName The name of the symbol to find.
+ * @param indexer The indexer instance.
+ * @returns The file path or null if not found.
+ */
+function findFileForSymbol(symbolName: string, indexer: Indexer): string | null {
+    const cache = indexer.getCache();
+    for (const filePath in cache) {
+        if (cache[filePath].analysis.symbols?.includes(symbolName)) {
+            return filePath;
+        }
+    }
+    return null;
+}
 
 function createSessionId(projectRoot: string): string {
   return crypto.createHash('sha256').update(projectRoot).digest('hex');
@@ -24,7 +52,7 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
   const sessionId = createSessionId(projectRoot);
 
   let indexer = await getIndexer(projectRoot);
-  const depGraph: DependencyGraph | null = await loadDependencyGraph(projectRoot);
+  let depGraph: DependencyGraph | null = await loadDependencyGraph(projectRoot);
 
   // --- Indexing Check ---
   while (!(await indexer.isIndexUpToDate()) || !depGraph) {
@@ -38,6 +66,7 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
     if (shouldIndex) {
         await handleIndexCommand(context);
         indexer = await getIndexer(projectRoot);
+        depGraph = await loadDependencyGraph(projectRoot);
     } else {
         logger.info('Chat session cancelled.');
         return;
@@ -69,12 +98,29 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
 
       logger.info('🤔 AI is thinking...');
       try {
+        let directHitContext = '';
+        const potentialSymbols = extractPotentialSymbols(line);
+
+        if (potentialSymbols.length > 0) {
+            logger.info(`Found potential symbols: ${potentialSymbols.join(', ')}`);
+            for (const symbol of potentialSymbols) {
+                const filePath = findFileForSymbol(symbol, indexer);
+                if (filePath) {
+                    const symbolContent = await getSymbolContent(filePath, symbol);
+                    if (symbolContent) {
+                        directHitContext += `--- User specifically mentioned "${symbol}". Providing its direct source code ---\n`;
+                        directHitContext += `<file path="${filePath}">\n${symbolContent}\n</file>\n\n`;
+                    }
+                }
+            }
+        }
+
         const topK = profile.rag?.topK || 3;
         const vectorResults = await queryVectorIndexRaw(projectRoot, line, aiProvider, topK);
         
-        let contextStr = 'No relevant code context found.';
+        let vectorContext = 'No relevant code context found from vector search.';
         if (vectorResults.length > 0) {
-            contextStr = vectorResults
+            vectorContext = vectorResults
                 .map(r => {
                     const filePath = r.item.metadata.filePath as string;
                     let dependencyInfo = '';
@@ -86,8 +132,10 @@ export async function handleChatCommand(context: AppContext): Promise<void> {
                 .join('\n\n');
         }
         
+        const finalContext = (directHitContext + vectorContext).trim();
+        
         conversationHistory.push({ role: 'user', content: line });
-        const prompt = constructChatPrompt(conversationHistory, contextStr);
+        const prompt = constructChatPrompt(conversationHistory, finalContext);
         
         logger.info('🤖 Assistant:');
         const stream = await aiProvider.invoke(prompt, true);

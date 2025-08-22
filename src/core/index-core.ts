@@ -11,6 +11,7 @@ import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
 import { logger } from '../logger/index.js';
 import { buildDependencyGraph, saveDependencyGraph } from '../codebase/dependencies.js';
+import { listSymbolsInFile } from '../codebase/ast.js';
 import { constructInitBatchPrompt, constructInitFinalPrompt,
          constructInitPrompt, gatherFileContext } from '../ai/index.js';
 
@@ -66,7 +67,6 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
 
     // --- Process Only the Files That Changed ---
     onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} new or modified files...` });
-
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });
 
     const failedFiles: string[] = [];
@@ -82,8 +82,9 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
         }
 
         const content = await fs.readFile(file, 'utf-8');
+        const symbols = await listSymbolsInFile(file);
         await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
-        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString() }); // Updates IN-MEMORY cache
+        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString(), symbols }); // Updates IN-MEMORY cache
         onUpdate({ type: 'action', content: 'file-processed' });
       } catch (error) {
         const errorMessage = `Could not process file ${file}: ${(error as Error).message}`;
@@ -142,7 +143,6 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
         onUpdate({ type: 'action', content: 'file-processed' });
     }
     fileContext = fileContext.trim();
-    // --- END MODIFICATION ---
 
     // --- BATCHING LOGIC ---
     const CHAR_LIMIT = 100000; // Character limit per batch
@@ -158,7 +158,7 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
         for (let i = 0; i < contextChunks.length; i++) {
             onUpdate({ type: 'action', content: `Analyzing batch ${i + 1} of ${contextChunks.length}...` });
             const batchPrompt = constructInitBatchPrompt(contextChunks[i]);
-            const response = await aiProvider.invoke(batchPrompt, false); // Not streaming this part
+            const response = await aiProvider.invoke(batchPrompt, false);
             const summary = response?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (summary) {
                 summaries.push(summary);

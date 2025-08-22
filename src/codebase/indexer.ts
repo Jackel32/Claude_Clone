@@ -8,7 +8,13 @@ import { isIndexCreated } from './vectorizer.js';
 
 const VALID_EXTENSIONS = new Set(['.ts', '.js', '.jsx', '.tsx', '.py', '.c', '.cpp', '.h', '.hpp', '.cs', '.java', '.md', '.json', '.html', '.css']);
 
-interface CacheEntry { hash: string; analysis: any; }
+interface CacheEntry { 
+  hash: string; 
+  analysis: {
+    vectorizedAt?: string;
+    symbols?: string[];
+  }; 
+}
 type AnalysisCache = Record<string, CacheEntry>;
 
 function getHash(content: string): string {
@@ -45,7 +51,12 @@ export class Indexer {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
       const hash = getHash(content);
-      this.cache[filePath] = { hash, analysis };
+      // Ensure analysis object exists
+      if (!this.cache[filePath]) {
+        this.cache[filePath] = { hash, analysis: {} };
+      }
+      this.cache[filePath].hash = hash;
+      this.cache[filePath].analysis = { ...this.cache[filePath].analysis, ...analysis };
     } catch (error: any) {
       logger.error(`Failed to update cache entry for ${filePath}:`, error);
     }
