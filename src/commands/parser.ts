@@ -20,6 +20,7 @@ export function parseArgs() {
     .command('chat', 'Starts a conversational session with the codebase')
     .command('task', 'Execute a task (AI Agent Mode)')
     .command('menu', 'Show the interactive main menu')
+    .command('setup', 'Run the interactive setup wizard to configure the tool')
     .option('profile', {
       alias: 'p',
       type: 'string',

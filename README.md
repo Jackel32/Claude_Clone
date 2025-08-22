@@ -16,16 +16,84 @@ The project follows a modular, CLI-first architecture:
 * **Codebase Management:** Tools for scanning, indexing, and analyzing code via ASTs.
 * **Commands:** A system for defining and executing specific developer tasks.
 
-## Setup Instructions
-1.  **Prerequisites:** Node.js (LTS) and npm/yarn.
-2.  **Installation:**
-    ```bash
-    git clone <repository-url>
-    cd Claude-Code-Clone
-    npm install
-    ```
-3.  **Configuration:** Add your AI provider API key to `~/.claude-code/config.json`.
-4.  **Running the Application:**
-    * For an interactive menu: `npm start`
-    * For direct commands: `npm run cli -- <command>` (e.g., `npm run cli -- index`)
-5.  **Running Tests:** `npm test`
+## Setup and Usage
+Follow these steps to set up and run the application as a global command-line tool.
+
+**1. Prerequisites**
+Ensure you have Node.js (v18 or higher) and npm installed on your system.
+
+**2. Installation & Configuration**
+First, clone the repository and install the necessary dependencies.
+```bash
+git clone <repository-url>
+cd Claude-Code-Clone
+npm install
+```
+Next, add your AI provider API key to the configuration file located at `~/.claude-code/config.json`.
+
+**3. Build the Project**
+Compile the TypeScript source code into JavaScript. This creates a `dist` directory containing the executable files needed to run the tool.
+```bash
+npm run build
+```
+
+**4. Link the Command**
+To make the `kinch-code` command available anywhere on your system, use npm to create a global link.
+```bash
+npm link
+```
+This command creates a symbolic link from your global `node_modules` to your project, allowing you to run `kinch-code` from any directory.
+
+**5. Running the Application**
+Once linked, you can navigate to any project directory you want to analyze and use the tool.
+
+* **For the interactive menu:**
+```bash
+    kinch-code menu
+```
+* **For direct commands:**
+```bash
+    # cd into the directory you want to analyze
+    cd /path/to/your/project
+
+    # Index the current directory (the path is optional)
+    kinch-code index
+
+    # Start a chat session with the codebase
+    kinch-code chat
+```
+**6. Running Tests**
+To run the included test suite:
+```bash
+npm test
+```
+
+
+TODO:
+1. Enhancing Core Functionality
+Interactive Code Modification in Chat: Allow the AI in the chat command to not just answer questions but also propose code changes. It could generate a diff of the proposed change, show it to you for approval, and then apply it to the file. This would make the chat feature much more powerful and action-oriented.
+
+Smarter Context for Chat: Augment the vector search context. When a user's query mentions a specific function or class (e.g., "explain the runIndex function"), use the AST to find that exact symbol and add its full source code to the prompt, in addition to the vector search results. This provides the AI with more precise, targeted information.
+
+Dependency-Aware Analysis: Enhance the AST analysis to map the dependency graph of the project (which files import which other files). This would allow the AI to answer more complex questions like, "If I change this function, what other parts of the application might be affected?"
+
+2. Adding New Commands & Capabilities
+Automated Documentation Generation (kinch-code docs): Create a new command that scans the entire project, uses the AI to summarize key modules and functions, and generates a comprehensive DOCUMENTATION.md file.
+
+Automated Test Generation (kinch-code test): Build a command that can automatically write unit tests for a specified file or function. For example, kinch-code test src/utils.ts would create a src/utils.test.ts file with relevant test cases.
+
+Deeper Git Integration (kinch-code git ...):
+
+kinch-code git review: Have the AI analyze your staged git changes and provide a code review summary.
+
+kinch-code git commit: Automatically generate a conventional commit message based on your staged changes.
+
+3. Improving User Experience
+Configuration Wizard (kinch-code setup): Instead of requiring users to manually edit a JSON file, create an interactive command that walks them through setting up their API keys, default models, and other preferences.
+
+Web UI Dashboard: While it's a CLI tool, you could add a command (kinch-code serve) that launches a simple local web application. This UI could provide a richer interface for viewing chat history, visualizing code analysis reports, or exploring the vector index results.
+
+4. Extensibility
+Plugin System for Custom Tasks: Allow users to define their own custom tasks in a local file (e.g., kinch-tasks.js). The application could dynamically load these tasks into the "Execute a Task" menu, making the tool highly extensible for different teams and workflows.
+
+IDE Extension (VS Code / JetBrains): The ultimate augmentation would be to package the core logic of your tool into an IDE extension. This would bring the chat, indexing, and task execution features directly into the developer's primary work environment.
