@@ -12,7 +12,7 @@ import {
 export async function startMainMenu(): Promise<void> {
   const baseContext = await createAppContext();
   const { profile } = baseContext;
-  const cwd = profile.cwd || '.';
+  const cwd = profile.cwd;
 
   logger.info('Welcome to Kinch Code AI Assistant!');
 

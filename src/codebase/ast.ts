@@ -6,14 +6,14 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import Parser from 'tree-sitter';
-import Ada from 'tree-sitter-ada';
+//import Ada from 'tree-sitter-ada';
 import { createRequire } from 'module';
 import { logger } from '../logger/index.js';
 const require = createRequire(import.meta.url);
 
 const ts = require('tree-sitter-typescript/bindings/node');
 const Python = require('tree-sitter-python/bindings/node');
-const CSharp = require('tree-sitter-c-sharp/bindings/node');
+//const CSharp = require('tree-sitter-c-sharp/bindings/node');
 const C = require('tree-sitter-c/bindings/node');
 const Cpp = require('tree-sitter-cpp/bindings/node'); 
 
@@ -49,14 +49,14 @@ export async function initializeParser(): Promise<void> {
           [(function_definition name: (identifier) @symbol.name) @symbol.node]
           [(class_definition name: (identifier) @symbol.name) @symbol.node]`
     };
-    languageConfig['.cs'] = {
-        language: CSharp,
-        symbolQuery: `
-        [(method_declaration name: (identifier) @symbol.name) @symbol.node]
-        [(class_declaration name: (identifier) @symbol.name) @symbol.node]
-        [(struct_declaration name: (identifier) @symbol.name) @symbol.node]
-        [(interface_declaration name: (identifier) @symbol.name) @symbol.node]`
-    };
+    // languageConfig['.cs'] = {
+        // language: CSharp,
+        // symbolQuery: `
+        // [(method_declaration name: (identifier) @symbol.name) @symbol.node]
+        // [(class_declaration name: (identifier) @symbol.name) @symbol.node]
+        // [(struct_declaration name: (identifier) @symbol.name) @symbol.node]
+        // [(interface_declaration name: (identifier) @symbol.name) @symbol.node]`
+    // };
     languageConfig['.c'] = {
         language: C,
         symbolQuery: `(function_declarator declarator: (identifier) @symbol.name) @symbol.node`
@@ -68,13 +68,13 @@ export async function initializeParser(): Promise<void> {
           [(class_specifier name: (type_identifier) @symbol.name) @symbol.node]
           [(struct_specifier name: (type_identifier) @symbol.name) @symbol.node]`
     };
-    languageConfig['.ada'] = { 
-        language: Ada,
-        symbolQuery: `
-          [(subprogram_body (subprogram_specification "procedure" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
-          [(subprogram_body (subprogram_specification "function" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
-          [(package_body (package_specification "package" "body" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]`
-    };
+    // languageConfig['.ada'] = { 
+        // language: Ada,
+        // symbolQuery: `
+          // [(subprogram_body (subprogram_specification "procedure" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
+          // [(subprogram_body (subprogram_specification "function" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]
+          // [(package_body (package_specification "package" "body" (defining_program_unit_name (identifier) @symbol.name))) @symbol.node]`
+    // };
 
     const extensionAliases: Record<string, string[]> = {
         '.js': ['.mjs', '.cjs'],

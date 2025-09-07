@@ -48,7 +48,7 @@ function createSessionId(projectRoot: string): string {
 
 export async function handleChatCommand(context: AppContext): Promise<void> {
   const { logger, profile, args, aiProvider } = context;
-  const projectRoot = path.resolve(args.path || profile.cwd || '.');
+  const projectRoot = String(profile.cwd);
   const sessionId = createSessionId(projectRoot);
 
   let indexer = await getIndexer(projectRoot);

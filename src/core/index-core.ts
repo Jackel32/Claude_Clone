@@ -20,7 +20,7 @@ const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1MB
 
 export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
   const { logger, aiProvider, args, profile } = context;
-  const projectRoot = path.resolve(args.path || profile.cwd || '.');
+  const projectRoot = profile.cwd;
   const indexer = await getIndexer(projectRoot);
 
   try {
@@ -120,7 +120,7 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
 
 export async function runInit(context: AppContext, onUpdate: AgentCallback): Promise<void> {
   const { logger, aiProvider, args, profile } = context;
-  const projectRoot = path.resolve(args.path || profile.cwd || '.');
+  const projectRoot = profile.cwd;
   
   try {
     onUpdate({ type: 'thought', content: `Initializing project at ${projectRoot}...` });
