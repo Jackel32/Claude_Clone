@@ -6,10 +6,12 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { getIndexer } from '../codebase/indexer.js';
 import { scanProject } from '../codebase/scanner.js';
-import { updateVectorIndex, getVectorIndex, setIndexCreatedState } from '../codebase/vectorizer.js';
+import { updateVectorIndex, getVectorIndex, setIndexCreatedState, deleteVectorsByIds } from '../codebase/vectorizer.js';
 import { AppContext } from '../types.js';
 import { AgentCallback } from './agent-core.js';
 import { logger } from '../logger/index.js';
+import { buildDependencyGraph, saveDependencyGraph } from '../codebase/dependencies.js';
+import { listSymbolsInFile } from '../codebase/ast.js';
 import { constructInitBatchPrompt, constructInitFinalPrompt,
          constructInitPrompt, gatherFileContext } from '../ai/index.js';
 
@@ -40,32 +42,33 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     let filesToIndex: string[] = [];
 
     if (deletedFiles.length > 0) {
-      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. A full re-index is required.` });
-      indexer.removeEntries(deletedFiles);
-      const vectorIndex = await getVectorIndex(projectRoot);
-      if (await vectorIndex.isIndexCreated()) {
-        await vectorIndex.deleteIndex();
-      }
-      filesToIndex = [...currentFiles]; // Re-index everything
-    } else {
-      // --- Efficiently Find New and Modified Files ---
-      onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
-      for (const file of currentFiles) {
-        if (await indexer.isEntryStale(file)) {
-          filesToIndex.push(file);
-        }
-      }
+      onUpdate({ type: 'thought', content: `Found ${deletedFiles.length} deleted files. Removing them from the index...` });
+      
+      const idsToDelete = deletedFiles.flatMap(file => {
+          const entry = indexer.getCache()[file];
+          return entry?.analysis?.vectorIds || [];
+      });
+
+      await deleteVectorsByIds(projectRoot, idsToDelete);
+      indexer.removeEntries(deletedFiles); // Remove from the JSON cache
     }
 
-    if (filesToIndex.length === 0) {
+    // --- Efficiently Find New and Modified Files ---
+    onUpdate({ type: 'thought', content: 'Checking for new and modified files...' });
+    for (const file of currentFiles) {
+        if (await indexer.isEntryStale(file)) {
+            filesToIndex.push(file);
+        }
+    }
+
+    if (filesToIndex.length === 0 && deletedFiles.length === 0) {
       onUpdate({ type: 'finish', content: 'Codebase is already up-to-date.' });
-      await indexer.saveCache(); // Save potential deletions even if no new files
+      await indexer.saveCache();
       return;
     }
 
     // --- Process Only the Files That Changed ---
     onUpdate({ type: 'thought', content: `Indexing ${filesToIndex.length} new or modified files...` });
-
     onUpdate({ type: 'action', content: `start-indexing|${filesToIndex.length}` });
 
     const failedFiles: string[] = [];
@@ -81,8 +84,13 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
         }
 
         const content = await fs.readFile(file, 'utf-8');
-        await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
-        await indexer.updateEntry(file, { vectorizedAt: new Date().toISOString() }); // Updates IN-MEMORY cache
+        const symbols = await listSymbolsInFile(file);
+        const vectorIds = await updateVectorIndex(projectRoot, file, content, aiProvider, onUpdate);
+        await indexer.updateEntry(file, { 
+            vectorizedAt: new Date().toISOString(), 
+            symbols,
+            vectorIds
+        });
         onUpdate({ type: 'action', content: 'file-processed' });
       } catch (error) {
         const errorMessage = `Could not process file ${file}: ${(error as Error).message}`;
@@ -94,6 +102,12 @@ export async function runIndex(context: AppContext, onUpdate: AgentCallback) {
     if (failedFiles.length > 0) {
         onUpdate({ type: 'thought', content: `\nFailed to process ${failedFiles.length} files:\n- ${failedFiles.join('\n- ')}` });
     }
+
+    // --- Build and save the dependency graph ---
+    onUpdate({ type: 'thought', content: 'Building dependency graph...' });
+    const depGraph = await buildDependencyGraph(projectRoot);
+    await saveDependencyGraph(projectRoot, depGraph);
+    onUpdate({ type: 'thought', content: 'Dependency graph saved.' });
 
     // --- Save Everything Once at the End ---
     await indexer.saveCache();
@@ -122,7 +136,19 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
     }
 
     onUpdate({ type: 'thought', content: `Gathering context from ${files.length} relevant files...` });
-    const fileContext = await gatherFileContext(files, onUpdate, files.length);
+    
+    onUpdate({ type: 'action', content: `start-initialization|${files.length}` });
+    let fileContext = '';
+    for (const file of files) {
+        try {
+            const content = await fs.readFile(file, 'utf-8');
+            fileContext += `<file path="${file}">\n${content}\n</file>\n\n`;
+        } catch (error) {
+            fileContext += `<file path="${file}">\n--- Error reading file ---\n</file>\n\n`;
+        }
+        onUpdate({ type: 'action', content: 'file-processed' });
+    }
+    fileContext = fileContext.trim();
 
     // --- BATCHING LOGIC ---
     const CHAR_LIMIT = 100000; // Character limit per batch
@@ -138,7 +164,7 @@ export async function runInit(context: AppContext, onUpdate: AgentCallback): Pro
         for (let i = 0; i < contextChunks.length; i++) {
             onUpdate({ type: 'action', content: `Analyzing batch ${i + 1} of ${contextChunks.length}...` });
             const batchPrompt = constructInitBatchPrompt(contextChunks[i]);
-            const response = await aiProvider.invoke(batchPrompt, false); // Not streaming this part
+            const response = await aiProvider.invoke(batchPrompt, false);
             const summary = response?.candidates?.[0]?.content?.parts?.[0]?.text;
             if (summary) {
                 summaries.push(summary);

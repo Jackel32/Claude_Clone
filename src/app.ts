@@ -5,7 +5,8 @@ import {
   handleChatCommand,
   handleIndexCommand,
   handleTaskCommand,
-  handleInitCommand
+  handleInitCommand,
+  handleSetupCommand
 } from './commands/handlers/index.js';
 
 export async function startMainMenu(): Promise<void> {
@@ -28,6 +29,7 @@ export async function startMainMenu(): Promise<void> {
           'Chat with the codebase',
           'Update codebase index',
           new inquirer.Separator(),
+          'Setup Configuration',
           'Exit',
         ],
       },
@@ -45,6 +47,9 @@ export async function startMainMenu(): Promise<void> {
         break;
       case 'Update codebase index':
         await handleIndexCommand({ ...baseContext, args: { path: cwd } });
+        break;
+      case 'Setup Configuration':
+        await handleSetupCommand();
         break;
       case 'Exit':
         logger.info('Goodbye!');

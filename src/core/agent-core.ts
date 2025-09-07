@@ -1,13 +1,13 @@
 /**
  * @file src/core/agent-core.ts
- * @description Core ReAct agent logic, decoupled from any UI.
+ * @description Core agent logic with a hybrid gather-plan-confirm workflow.
  */
 
-import * as path from 'path'; 
+import * as path from 'path';
 import { promises as fs } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { constructReActPrompt, constructPlanPrompt, PlanStep } from '../ai/index.js';
+import { constructPlanPrompt, constructReActPrompt, PlanStep } from '../ai/index.js';
 import { AppContext } from '../types.js';
 import { extractJson } from '../commands/handlers/utils.js';
 import { getSymbolContent, listSymbolsInFile, queryVectorIndex, scanProject } from '../codebase/index.js';
@@ -30,239 +30,151 @@ export async function runAgent(
     onPrompt: (question: string) => Promise<string>,
     requiredTools: string[],
     taskTemplateId?: string
-) {  
-  const { logger, aiProvider, profile } = context;
-  const projectRoot = path.resolve(context.args.path || '.');
-  const files = await scanProject(projectRoot);
-  let initialContext = `Files in the project:\n${files.join('\n')}`;
+) {
+    const { logger, aiProvider, profile } = context;
+    const projectRoot = path.resolve(context.args.path || '.');
 
-  if (taskTemplateId === 'analyze-task-tools') {
+    // --- Pre-run Index Check ---
+    try {
+        await queryVectorIndex(projectRoot, "test query", aiProvider, 1);
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Vector index not found')) {
+            onUpdate({ type: 'thought', content: 'Codebase index is not ready. Running indexer before proceeding...' });
+            await runIndex(context, onUpdate);
+        } else {
+            onUpdate({ type: 'error', content: `Failed during pre-run index check: ${(e as Error).message}` });
+            return;
+        }
+    }
+
+    const files = await scanProject(projectRoot);
+    let initialContext = `Files in the project:\n${files.join('\n')}`;
+
+    if (taskTemplateId === 'analyze-task-tools') {
       try {
           const libraryJson = JSON.stringify(TASK_LIBRARY, null, 2);
           initialContext = `You have been asked to analyze the following TASK_LIBRARY:\n\n${libraryJson}\n\n---\n\n${initialContext}`;
       } catch (e) {
           logger.error(e, "Failed to serialize TASK_LIBRARY for agent context");
       }
-  }
-
-  let history = '';
-  const maxTurns = 20;
-
-  const allToolNames = Object.keys(ALL_TOOLS);
-  for (const tool of requiredTools) {
-      if (!allToolNames.includes(tool)) {
-          onUpdate({ type: 'error', content: `Task requires tool "${tool}", but it is not a valid tool.` });
-          return;
-      }
-  }
-
-  for (let i = 0; i < maxTurns; i++) {
-    let responseJson;
-    try {
-      const prompt = constructReActPrompt(
-        userTask,
-        history,
-        initialContext,
-        requiredTools as (keyof typeof ALL_TOOLS)[]
-      );
-      const response = await aiProvider.invoke(prompt, false);
-      const rawResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!rawResponse) throw new Error("AI returned an empty response.");
-
-      try {
-        responseJson = JSON.parse(extractJson(rawResponse));
-      } catch (parseError) {
-        const errorMessage = `Error: Your last response was not valid JSON. Please correct the syntax and provide a single, valid JSON object with 'thought' and 'action'. Error details: ${(parseError as Error).message}`;
-        onUpdate({ type: 'thought', content: 'Received malformed JSON, attempting to self-correct...' });
-        history += `\nObservation: ${errorMessage}`;
-        continue;
-      }
-
-      if (!responseJson || typeof responseJson.thought !== 'string' || typeof responseJson.action !== 'object' || responseJson.action === null || typeof responseJson.action.tool !== 'string') {
-        history += `\nObservation: Error - AI response was not in the expected format.`;
-        onUpdate({ type: 'thought', content: 'Received incomplete JSON, attempting to self-correct...' });
-        continue;
-      }
-
-      const { thought, action } = responseJson;
-      onUpdate({ type: 'thought', content: thought });
-      history += `\nThought: ${thought}\nAction: ${JSON.stringify(action)}`;
-
-      if (action.tool === 'finish') {
-        onUpdate({ type: 'finish', content: action.summary });
-        return;
-      }
-      
-      onUpdate({ type: 'action', content: `[${action.tool}] Executing...` });
-      let observation = '';
-      try {
-        switch (action.tool) {
-          case 'writeFile':
-            if (typeof action.path !== 'string' || typeof action.content !== 'string') {
-              throw new Error("Action 'writeFile' is missing 'path' or 'content'.");
-            }
-            await fs.writeFile(action.path, action.content, 'utf-8');
-            observation = `Successfully wrote to ${action.path}.`;
-            break;
-
-          case 'executeCommand':
-            if (typeof action.command !== 'string') {
-                throw new Error("Action 'executeCommand' is missing 'command'.");
-            }
-            const { stdout } = await execAsync(action.command);
-            observation = `Command output:\n${stdout}`;
-            break;
-
-          case 'runIndex':
-            await runIndex(context, onUpdate);
-            observation = 'Successfully indexed the codebase.';
-            break;
-
-          case 'readFile':
-            if (typeof action.path !== 'string') {
-                throw new Error("Action 'readFile' is missing 'path'.");
-            }
-            observation = await fs.readFile(action.path, 'utf-8');
-            break;
-
-          case 'listFiles':
-            const files = await scanProject(projectRoot);
-            observation = `The following files were found in the project:\n${files.join('\n')}`;
-            break;
-
-          case 'listSymbols':
-            if (typeof action.path !== 'string') {
-              throw new Error("Action 'listSymbols' is missing 'path'.");
-            }
-            const symbols = await listSymbolsInFile(action.path);
-            observation = `The file "${action.path}" contains the following symbols:\n${symbols.join('\n')}`;
-            break;
-            
-          case 'readSymbol':
-            if (typeof action.path !== 'string' || typeof action.symbolName !== 'string') {
-              throw new Error("Action 'readSymbol' is missing 'path' or 'symbolName'.");
-            }
-            const content = await getSymbolContent(action.path, action.symbolName);
-            if (!content) {
-              throw new Error(`Symbol "${action.symbolName}" not found in "${action.path}".`);
-            }
-            observation = `Content of symbol "${action.symbolName}" from "${action.path}":\n${content}`;
-            break;
-
-          // case 'getRecentCommits':
-          //   const commits = await getRecentCommits(context.args.path || '.');
-          //   observation = `Recent commits:\n${commits.join('\n')}`;
-          //   break;
-            
-          // case 'getGitDiff':
-          //   if (typeof action.startCommit !== 'string' || typeof action.endCommit !== 'string') {
-          //     throw new Error("Action 'getGitDiff' is missing 'startCommit' or 'endCommit'.");
-          //   }
-          //   observation = await getDiffBetweenCommits(action.startCommit, action.endCommit, context.args.path || '.');
-          //   break;
-          
-          case 'queryVectorIndex':
-            if (typeof action.query !== 'string') {
-              throw new Error("Action 'queryVectorIndex' is missing a 'query'.");
-            }
-            const topK = profile.rag?.topK || 5;
-            try {
-                // First attempt to query
-                observation = await queryVectorIndex(projectRoot, action.query, aiProvider, topK);
-            } catch (e) {
-                // If it fails because the index is missing, run the indexer and retry
-                if (e instanceof Error && e.message.includes('Vector index not found')) {
-                    onUpdate({ type: 'thought', content: 'Vector index not found. Running indexer automatically before retrying query...' });
-                    await runIndex(context, onUpdate);
-                    observation = `Successfully indexed the codebase. Retrying query: "${action.query}"...\n\n` + await queryVectorIndex(context.args.path || '.', action.query, aiProvider, topK);
-                } else {
-                    // Re-throw any other errors
-                    throw e;
-                }
-            }
-            break;
-
-          case 'askUser':
-            if (typeof action.question !== 'string') {
-              throw new Error("Action 'askUser' is missing a 'question'.");
-            }
-            // Use the callback instead of inquirer
-            const answer = await onPrompt(action.question);
-            observation = `The user responded: "${answer}"`;
-            break;
-
-          case 'createPlan': { // Use a block scope for new variables
-            if (typeof action.goal !== 'string') {
-              throw new Error("Action 'createPlan' is missing a 'goal'.");
-            }
-
-            onUpdate({ type: 'thought', content: `Generating a plan for the goal: "${action.goal}"` });
-            const planPrompt = constructPlanPrompt(action.goal, initialContext);
-            const planResponse = await aiProvider.invoke(planPrompt, false);
-            const rawPlan = planResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!rawPlan) throw new Error("Could not generate a plan.");
-
-            const plan = JSON.parse(extractJson(rawPlan)) as PlanStep[];
-            const planObservations: string[] = [];
-            onUpdate({ type: 'thought', content: `Plan generated with ${plan.length} steps. Now executing...` });
-
-            for (let i = 0; i < plan.length; i++) {
-              const step = plan[i];
-              onUpdate({ type: 'thought', content: `Step ${i + 1}/${plan.length}: ${step.reasoning}` });
-              onUpdate({ type: 'action', content: `[${step.operation}] Executing...` });
-
-              try {
-                let stepResult = '';
-                switch (step.operation) {
-                  case 'writeFile':
-                    if (!step.path || !step.content) throw new Error("Plan step 'writeFile' is missing 'path' or 'content'.");
-                    await fs.writeFile(step.path, step.content, 'utf-8');
-                    stepResult = `Successfully wrote to ${step.path}.`;
-                    break;
-                  case 'executeCommand':
-                    if (!step.command) throw new Error("Plan step 'executeCommand' is missing 'command'.");
-                    const { stdout } = await execAsync(step.command);
-                    stepResult = `Command output:\n${stdout}`;
-                    break;
-                  case 'readFile':
-                    if (!step.path) throw new Error("Plan step 'readFile' is missing 'path'.");
-                    stepResult = await fs.readFile(step.path, 'utf-8');
-                    break;
-                  default:
-                    stepResult = `Error: Unknown operation "${step.operation}" in plan.`;
-                }
-                planObservations.push(`Step ${i + 1} (${step.operation}) Result: ${stepResult}`);
-              } catch (e) {
-                const err = e as Error;
-                const errorResult = `Step ${i + 1} (${step.operation}) Failed: ${err.message}`;
-                planObservations.push(errorResult);
-                observation = `Plan execution failed. ${errorResult}\n\nCompleted Observations:\n${planObservations.join('\n')}`;
-                throw new Error(observation);
-              }
-            }
-            
-            observation = `Successfully executed all ${plan.length} steps of the plan.\n\nObservations:\n${planObservations.join('\n')}`;
-            break;
-          }
-            
-          default:
-            observation = `Error: Unknown tool "${action.tool}"`;
-        }
-        onUpdate({ type: 'observation', content: observation });
-        history += `\nObservation: ${observation}`;
-      } catch (e) {
-        const err = e as Error;
-        const errorMessage = `Action [${action.tool}] Failed: ${err.message}`;
-        onUpdate({ type: 'error', content: errorMessage });
-        history += `\nError: ${errorMessage}`;
-      }
-
-    } catch (error) {
-      const err = error as Error;
-      onUpdate({ type: 'error', content: err.message });
-      logger.error(err, 'A critical error occurred during the agent task.');
-      return;
     }
-  }
-  onUpdate({ type: 'error', content: 'Task ended due to reaching the maximum number of turns.' });
+
+    let history = '';
+    const maxTurns = 20;
+
+    for (let i = 0; i < maxTurns; i++) {
+        let responseJson;
+        try {
+            const prompt = constructReActPrompt(userTask, history, initialContext, requiredTools as (keyof typeof ALL_TOOLS)[]);
+            const response = await aiProvider.invoke(prompt, false);
+            const rawResponse = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawResponse) throw new Error("AI returned an empty response.");
+
+            try {
+                responseJson = JSON.parse(extractJson(rawResponse));
+            } catch (parseError) {
+                const errorMessage = `Error: Your last response was not valid JSON. Please correct the syntax. Error details: ${(parseError as Error).message}`;
+                onUpdate({ type: 'thought', content: 'Received malformed JSON, attempting to self-correct...' });
+                history += `\nObservation: ${errorMessage.replace(/\n/g, ' ')}`;
+                continue; // Give the agent a chance to recover
+            }
+
+            const { thought, action } = responseJson;
+            onUpdate({ type: 'thought', content: thought });
+            history += `\nThought: ${thought}\nAction: ${JSON.stringify(action)}`;
+
+            if (action.tool === 'finish') {
+                onUpdate({ type: 'finish', content: action.summary });
+                return;
+            }
+
+            // --- NEW: Handle the proposePlan tool separately ---
+            if (action.tool === 'proposePlan') {
+                if (typeof action.goal !== 'string') {
+                    throw new Error("Action 'proposePlan' is missing a 'goal'.");
+                }
+                
+                // The context for the planner is the entire history of the agent's information gathering
+                const planContext = history; 
+                onUpdate({ type: 'thought', content: `Okay, I have enough information. I will now create a plan to: ${action.goal}` });
+                const planPrompt = constructPlanPrompt(action.goal, planContext);
+                const planResponse = await aiProvider.invoke(planPrompt, false);
+                const rawPlan = planResponse?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!rawPlan) throw new Error("The AI failed to generate a plan.");
+
+                const plan = JSON.parse(extractJson(rawPlan)) as PlanStep[];
+
+                let planString = "Here is the plan I've constructed:\n";
+                plan.forEach((step, index) => {
+                    planString += `\nStep ${index + 1}: ${step.operation}\n  - Reasoning: ${step.reasoning}\n`;
+                });
+                planString += "\nDo you approve this plan? (yes/no)";
+
+                const userApproval = await onPrompt(planString);
+
+                if (userApproval.trim().toLowerCase() !== 'yes') {
+                    onUpdate({ type: 'finish', content: 'Plan rejected by user. Task aborted.' });
+                    return;
+                }
+
+                // --- Execute the approved plan ---
+                onUpdate({ type: 'thought', content: `Plan approved. Executing ${plan.length} steps...` });
+                for (const step of plan) {
+                    onUpdate({ type: 'thought', content: `Executing: ${step.reasoning}` });
+                    onUpdate({ type: 'action', content: `[${step.operation}]` });
+                    let stepObservation = '';
+                    switch (step.operation) {
+                        case 'writeFile':
+                            await fs.writeFile(step.path!, step.content!, 'utf-8');
+                            stepObservation = `Successfully wrote to ${step.path}.`;
+                            break;
+                        case 'executeCommand':
+                            const { stdout } = await execAsync(step.command!);
+                            stepObservation = `Command output:\n${stdout}`;
+                            break;
+                        // Note: Read-only tools are not part of the execution plan
+                    }
+                    onUpdate({ type: 'observation', content: stepObservation });
+                }
+
+                onUpdate({ type: 'finish', content: 'Successfully executed all steps of the plan.' });
+                return; // End the agent's run
+            }
+
+            onUpdate({ type: 'action', content: `[${action.tool}] Executing...` });
+            let observation = '';
+            // --- This switch now ONLY contains read-only tools ---
+            switch (action.tool) {
+                case 'queryVectorIndex':
+                    observation = await queryVectorIndex(projectRoot, action.query, aiProvider, profile.rag?.topK || 5);
+                    break;
+                case 'listFiles':
+                    observation = `The following files were found:\n${(await scanProject(projectRoot)).join('\n')}`;
+                    break;
+                case 'readFile':
+                    observation = await fs.readFile(action.path, 'utf-8');
+                    break;
+                case 'listSymbols':
+                    observation = `Symbols in ${action.path}:\n${(await listSymbolsInFile(action.path)).join('\n')}`;
+                    break;
+                case 'readSymbol':
+                    observation = await getSymbolContent(action.path, action.symbolName) || `Symbol ${action.symbolName} not found.`;
+                    break;
+                case 'askUser':
+                    observation = `The user responded: "${await onPrompt(action.question)}"`;
+                    break;
+                default:
+                    observation = `Error: The tool "${action.tool}" is not a valid information-gathering tool. You must propose a plan to perform actions like 'writeFile' or 'executeCommand'.`;
+            }
+            const sanitizedObservation = observation.replace(/\n/g, ' ');
+            onUpdate({ type: 'observation', content: sanitizedObservation });
+            history += `\nObservation: ${sanitizedObservation}`;
+        } catch (error) {
+            const err = error as Error;
+            onUpdate({ type: 'error', content: `A critical error occurred: ${err.message}` });
+            logger.error(err, 'Agent task failed');
+            return;
+        }
+    }
+    onUpdate({ type: 'error', content: 'Task ended due to reaching the maximum number of turns.' });
 }

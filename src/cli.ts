@@ -3,7 +3,7 @@ import { parseArgs } from './commands/index.js';
 import { logger } from './logger/index.js';
 import { AppError } from './errors/index.js';
 import { startMainMenu } from './app.js';
-import { handleIndexCommand, handleChatCommand, handleTaskCommand } from './commands/handlers/index.js';
+import { handleIndexCommand, handleChatCommand, handleTaskCommand, handleSetupCommand } from './commands/handlers/index.js';
 import { createAppContext } from './config/index.js';
 
 async function main() {
@@ -11,6 +11,12 @@ async function main() {
     const args = await parseArgs();
     const context = await createAppContext(args);
     const command = args._[0];
+
+    // The 'setup' command doesn't need the full context
+    if (command === 'setup') {
+      await handleSetupCommand();
+      return;
+    }
 
     switch (command) {
       case 'menu':

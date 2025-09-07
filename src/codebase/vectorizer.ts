@@ -92,10 +92,11 @@ export async function updateVectorIndex(
     content: string,
     client: AIProvider,
     onUpdate: AgentCallback
-): Promise<void> {
+): Promise<string[]> {
     logger.trace({ filePath, projectRoot }, 'updateVectorIndex: Starting update for file.');
     
     const vectorIndex = await getVectorIndex(projectRoot);
+    const createdVectorIds: string[] = [];
     
     logger.trace({ projectRoot }, 'updateVectorIndex: Checking if index is created...');
     const indexExists = await vectorIndex.isIndexCreated();
@@ -115,16 +116,36 @@ export async function updateVectorIndex(
         if (!chunk.trim()) continue;
 
         onUpdate({ type: 'action', content: `chunk ${i + 1}/${chunks.length}...` });
-        logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Embedding chunk...');
-        
         const vector = await client.embed(chunk, projectRoot);
-        
+
         logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Upserting item into index...');
-        await vectorIndex.upsertItem({
+        const upsertedItem = await vectorIndex.upsertItem({ // The upsertItem method should return the item with its ID
             vector,
             metadata: { filePath, chunk: i + 1, content: chunk },
         });
+
+        if (upsertedItem && upsertedItem.id) {
+            createdVectorIds.push(upsertedItem.id);
+        }
         logger.trace({ filePath, chunk: `${i + 1}/${chunks.length}` }, 'updateVectorIndex: Upsert complete.');
+    }
+    return createdVectorIds;
+}
+
+/**
+ * Deletes items from the vector index by their IDs.
+ * @param {string} projectRoot - The root of the project.
+ * @param {string[]} ids - An array of vector IDs to delete.
+ */
+export async function deleteVectorsByIds(projectRoot: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    logger.trace({ count: ids.length }, 'deleteVectorsByIds: Deleting vectors.');
+    const vectorIndex = await getVectorIndex(projectRoot);
+    if (await vectorIndex.isIndexCreated()) {
+        for (const id of ids) {
+            await vectorIndex.deleteItem(id);
+        }
+        logger.trace({ count: ids.length }, 'deleteVectorsByIds: Deletion complete.');
     }
 }
 
